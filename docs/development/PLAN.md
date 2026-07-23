@@ -1,15 +1,26 @@
-# Residents — Implementation Plan
+# Topology — Implementation Plan
 
-**Status:** Binding plan · Last updated 2026-07-21
+**Status:** Binding plan · Last updated 2026-07-23
 
-This document is the authoritative implementation plan for the Residents
-integration. It distills and supersedes the (German) idea-collection
-documents that preceded it; it is written to be read standalone. Two
-sister integrations, each in a separate repository, are planned alongside
-it: **courier** (a notification layer that reads from Residents) in
-[PLAN-courier.md](./PLAN-courier.md), and **topology** (area type,
-indoor/outdoor, and adjacency, which Residents reads) in
-[PLAN-topology.md](./PLAN-topology.md).
+This document is the authoritative implementation plan for the **topology**
+integration developed in this repository. It replaces the earlier three-file
+split (PLAN.md, PLAN-topology.md, PLAN-courier.md) that was carried over from
+the sister residents repository, and rewrites the topology material from a
+Residents-interface perspective into a first-person implementation plan.
+
+Two sister integrations are planned alongside topology, each in a separate
+repository, and only consume from it — never the other way round:
+
+- **residents** ([jpawlowski/hass.residents](https://github.com/jpawlowski/hass.residents))
+  — models the people and pets of a household as a first-class domain
+  (state, membership, relationships, master data). Consumes topology
+  _optionally_, the same way it consumes Proximity: capabilities degrade
+  cleanly when topology is absent.
+- **courier** (planned in its own repository) — a notification layer that
+  reads from residents. Courier does **not** read topology directly; it
+  sees topology only transitively, through values residents derives from
+  it (e.g. `needs_quiet` after adjacency propagation, perimeter-open
+  checks).
 
 Everything in this repository — code, entity IDs, state values, services,
 documentation — is written in **English**. Localized UI strings come from
@@ -17,547 +28,659 @@ Home Assistant translation files only.
 
 ## 1. Vision (condensed)
 
-Home Assistant knows _where_ people are (`person`, `device_tracker`,
-`zone`) but almost nothing _about_ them. Residents models the people and
-pets of a household as a first-class domain: state, membership,
-relationships, and master data.
+Home Assistant knows _which_ areas and floors exist, but nothing _about_
+them: an area has no type, no indoor/outdoor flag, and no notion of which
+areas border each other. topology is a thin metadata layer over the HA
+area/floor registry that makes the house **machine-readable** — a
+floorplan for automations, not for humans.
 
-The guiding question is not "where is person X?" but:
+topology **consumes, never rebuilds** the area/floor registry: it never
+defines areas, only annotates them. The primitives are fixed at planning
+level:
 
-> What does the house need to know about its members so that automations
-> can be written in human terms?
+- **Area type** — an open catalog with defaults (`bedroom`, `living`,
+  `kitchen`, `dining`, `bathroom`, `hallway`, `office`, `utility`,
+  `storage`, `garage`, `outdoor`). Type is a _descriptive hint_, never
+  authoritative: it may seed defaults (e.g., suggest a `sleeping_place`
+  when type = `bedroom`) but residents' sleeping-area derivation stays
+  the source of truth. Within topology, picking a type also **cascades
+  editable defaults** onto the other two area fields — `bedroom` ⇒
+  indoor + `private`, `hallway` ⇒ indoor + `shared`, `outdoor` ⇒
+  outdoor — so an area is one choice plus corrections, not three
+  separate decisions. These are only starting points; `trust` in
+  particular stays individual (a front garden is `outdoor` but
+  `public`).
 
-**Success criterion.** The plan succeeds if automations become expressible
-that today require hard-coded entity lists or are not expressible at all:
+- **Environment** — `indoor` · `outdoor` · `semi_outdoor` (covered
+  balcony, porch). A balcony, terrace, or garden is a real area but a
+  fundamentally different kind of space than an interior room.
 
-- "When the last **adult** leaves the house …"
-- "Motion in an **exclusively** assigned sleeping area although all
-  assigned persons are provably away …"
-- "Lights off in all areas that **only this person** has an exclusive
-  relationship with"
-- "Only wake the area the person triggering the alarm is assigned to"
-- "While only guests are present, no resident-specific routines"
-- "Night mode once all present persons with a sleeping place are asleep"
+- **Trust / exposure class** — a per-area, user-set rating of how exposed
+  a space is, **orthogonal to environment**: `private` (exclusively
+  yours — rooms, a fenced back garden) · `shared` (limited / communal
+  access — an apartment building's hallway, a shared garden) · `public`
+  (exposed to strangers — the street, an open front yard). The scale is
+  **ordered** (`private` < `shared` < `public`), which makes the
+  perimeter derivation (under Connections) machine-evaluable. It is
+  deliberately individual: the same terrace door faces a private back
+  garden in one home and a public street in another. Trust is
+  independent of environment — back garden = outdoor + `private`,
+  hallway = indoor + `shared`, front yard = outdoor + `public`,
+  bedroom = indoor + `private`.
 
-**Consume, complement, build.** Every capability is deliberately sorted
-into one of three classes, and the classification is documented:
+- **Adjacency graph** — undirected area↔area edges. The horizontal /
+  vertical **axis** is _derived_ from the two areas' floors (same
+  `level` = horizontal, differing = vertical) and never stored. An edge
+  is backed by **one or more connections** (next primitive) — two
+  floor landings routinely hold both a stair and a lift at once, so a
+  single edge is a _bundle_, not one link. "Connected vs. only next to
+  each other" is whether any connection is traversable; graph
+  "distance" is the hop count plus the floor-level difference.
+  Observer-relative directions (left/right/front/back) are deliberately
+  **not** modeled — they are ambiguous without a fixed viewpoint — and
+  there are no metric (x/y/z) coordinates.
 
-| Class            | Rule                    | Examples                                                                                                     |
-| ---------------- | ----------------------- | ------------------------------------------------------------------------------------------------------------ |
-| HA has it        | consume, never rebuild  | location, zones, Proximity (distance/direction), alarms, calendars, areas/floors, sun, repairs, translations |
-| HA almost has it | complement, do not fork | `person` (no metadata), purpose-built triggers (no notion of person), Proximity (no intent)                  |
-| HA lacks it      | build                   | person state space, membership, relationship model with roles, home mode                                     |
+- **Connections (doors, windows, stairs, lifts …)** — one physical way
+  the two sides of an edge meet; an edge carries a **list** of them, so
+  a stairwell with both a stair and a lift is two connections, not a
+  compromise into one. Each connection has:
+  - **`passage`** — how a person crosses: `none` (adjacent, not
+    traversable) · `level` (walk, same floor) · `stairs` · `ramp`
+    (vehicle or wheelchair) · `elevator` · `ladder` · `hatch`.
+    Distinguishing `stairs` / `ramp` / `elevator` also enables step-free
+    routing later.
+  - **`barrier`** — permeability to sound / air / light: `open` (no
+    barrier — open doorway, or an open stairwell / atrium _void_) ·
+    `door` (closable, state-dependent; the leaf mechanism — hinged,
+    sliding, pocket, folding — is _not_ distinguished, it changes
+    nothing the model reasons about) · `solid` (a wall, or a floor /
+    ceiling slab).
+  - optional **side** — the cardinal bearing (`N` · `E` · `S` · `W`,
+    rough side only, never geometry); the two areas carry opposite
+    bearings (N↔S / E↔W).
+  - optional **sensor** — a Home Assistant door/window `binary_sensor`
+    for live open/closed state (only meaningful for `barrier: door`).
+  - optional **`glazed`** — the connection transmits daylight (a
+    window, interior or exterior). v1 keeps `barrier` coarse;
+    separating light as its own permeability (borrowed-light reasoning)
+    is a later refinement.
 
-When a consumed source is missing (e.g., no Proximity config), Residents
-does **not** rebuild it: the dependent capability degrades or disappears,
-and a **repair issue** points the user to the integration to set up.
+  So an open stairwell + lift between two landings is `{stairs, open}`
+  and `{elevator, door, sensor}`; a plain shared wall is a single
+  `{none, solid}`. A connection is **interior** when it leads to
+  another area (it backs that edge) or **exterior** when it faces
+  outside (a window or outside door, no second area — attached to the
+  one area). A window can be either: an **exterior** window on an
+  `outdoor` wall (see next primitive), or an **interior** `glazed`
+  connection between two of your areas that passes daylight to an
+  inner room. Propagation for downstream reasoning (quiet grading, air
+  flow) takes the **most permeable connection** on an edge: an open
+  stair dominates an enclosed lift beside it.
 
-Area **topology** — room type, indoor/outdoor, and room adjacency
-(a machine-readable floorplan) — is likewise consumed, not built: it is
-house data, not resident data. It will come from **topology**, a
-dedicated sister integration planned in
-[PLAN-topology.md](./PLAN-topology.md) (separate repository, like
-courier). Residents consumes it
-where a capability benefits — e.g., excluding outdoor areas (balcony,
-terrace, garden) from `needs_quiet`, or adjacency for the v3 quiet
-grading — and degrades with a repair issue when it is absent. Once
-consuming it, Residents also raises a **degradation repair issue** when
-topology's consistency signal reports that data a Residents capability
-depends on is incomplete — it reads that signal, never re-running
-topology's own checks (consume, don't rebuild; topology owns and raises
-the underlying issues). What stays in Residents is only the
-_person-relative_ meaning of an area (`own_room` + `exclusive`, the
-sleeping-area derivation, `retreat` / `seat` / `dining_place` /
-`workspace` roles).
+  In the UI a connection is picked from a named **preset** — interior
+  door, open passage, shared wall, open stair, enclosed stair, lift,
+  loft ladder, ramp, window, outside door — that expands to a
+  `passage` + `barrier` pair. The **stored model stays the two-axis
+  form**, so presets are convenience only, not a new object type; rare
+  real combinations (a glass observation lift = `elevator` + `open`)
+  remain settable by hand without a preset for every permutation.
 
-## 2. Domain model — core decisions
+  What lies **beyond** a traversable interior connection is the trust
+  class of its target area; a bare exterior connection with no modeled
+  target defaults to `public` (nothing behind it ⇒ treat as exposed),
+  or may carry an inline class so a building hallway can be `shared`
+  without being modeled as its own area. A **perimeter connection** —
+  the secure envelope of the home — is _derived_ from the trust delta:
+  any connection whose two sides differ in trust class
+  (private↔shared, private↔public) is one, so the set of doors to
+  watch when away or asleep falls out automatically. An optional
+  per-connection **`perimeter` flag** covers the rare same-class
+  boundary the delta cannot see — a door between a main flat and a
+  granny flat, both `private` — forcing it to count as a perimeter.
 
-### 2.1 Membership × kind
+- **Outer walls (`beyond`) & occupancy extent** — a wall side of an
+  area that does _not_ border one of your own areas gets a **`beyond`**
+  class: `outdoor` (open air — the only side an exterior window or
+  balcony door may sit on), `neighbor` (a party wall to a foreign
+  occupied unit you do not model — "there is a wall here, not empty
+  air, and not the outside"), or `earth` (a buried wall, e.g. a cellar
+  against soil — no window possible). "Exterior vs. interior wall" is
+  therefore _derived_, never a second flag: interior = the side borders
+  your own area (an edge); exterior / party / buried = the `beyond`
+  class. This is what lets the UI **constrain window placement** — an
+  exterior opening is offered only on an `outdoor` side. A home-level
+  **occupancy extent** — `whole_property` vs. `unit_within_building` —
+  records whether all areas together are a standalone home or a unit
+  inside a larger structure; largely derivable (any `neighbor` wall ⇒
+  a unit) but kept explicit for the map (envelope vs. unit) and as the
+  default for unmodeled outer walls (`whole_property` ⇒ `outdoor`, a
+  unit ⇒ `neighbor` / unknown).
 
-Membership is a property of the _relationship between person and
-household_, not of the person:
+- **Floors & vertical stacking** — topology consumes the HA floor
+  registry, whose `level: int | None` is the **authoritative vertical
+  ordering** (HA itself sorts floors by `level`, higher = higher up;
+  verified in `helpers/floor_registry.py`). Where `level` is unset,
+  topology lets the user supply it (consume, then complement). Floor
+  `level` orders the _floors_; which specific area sits above which
+  specific area is a separate fact, carried by explicit **vertical
+  connections** (`stairs` / `ramp` / `elevator` / `ladder` / `hatch`,
+  or a `{none, solid}` connection for a plain stacked ceiling) between
+  the two areas. A multi-storey garage is just negative-`level` floors
+  joined this way; a stair or lift serving many floors is modeled as
+  per-floor landings (or a small `shared` shaft area) with pairwise
+  connections — no hyper-edge primitive is needed. "Above/below" is
+  therefore always unambiguous; "north/west of" is available wherever
+  a bearing was set.
 
-|                          | named (own preferences, own devices) | anonymous (placeholder) |
-| ------------------------ | ------------------------------------ | ----------------------- |
-| belongs to the household | **resident**                         | —                       |
-| does not belong to it    | **regular** (regular guest)          | **guest slot**          |
+**Modeling is individual.** Outdoor space can be one area (one trust
+class) or split — front yard `public`, back garden `private`, or
+further by bearing (N/E/S/W) — whatever the site needs; merging front
+and back into one garden area means one shared trust class, so split
+when they differ. A building's shared hallway may be modeled as a
+`shared` area (so a further hallway→street door shows `shared` vs.
+`public`) or left implicit on the apartment door via the connection's
+inline class. topology forces neither; it only makes the chosen
+granularity machine-readable.
 
-- **Resident** — absence is the exception.
-- **Regular** — named, with preferences and devices, but presence is the
-  exception (grown-up children, recurring visitors, caregivers). Fully
-  modeled in the state space; invisible in household aggregates while
-  absent.
-- **Guest slot** — anonymous, reusable identity placeholder with lifecycle
-  free → occupied → free, expiry date, and automatic reset. A slot can be
-  assigned to a named person for a stay, so "occupied by a regular" and
-  "occupied anonymously" are the same mechanism.
+topology is useful **standalone** — annotating areas is valuable
+without residents — so it must never depend on residents (or on
+courier, which does not see topology at all).
 
-**Kind** is orthogonal: `human` or `pet`.
+**Consume, complement, build.** Every primitive is deliberately sorted
+into one of three classes:
 
-**Presence and overnight stay are independent.** A dinner guest is present
-without staying overnight. There is no "overnight" toggle: **a
-time-limited sleeping-place relationship _is_ the overnight stay.**
+| Class            | Rule                    | Examples in topology                                                    |
+| ---------------- | ----------------------- | ----------------------------------------------------------------------- |
+| HA has it        | consume, never rebuild  | area registry, floor registry (`level`), labels, door/window sensors    |
+| HA almost has it | complement, do not fork | floor `level` where unset (topology writes back the missing ordering)   |
+| HA lacks it      | build                   | area type/env/trust, adjacency graph, connections, `beyond`, perimeter  |
 
-### 2.2 State: two axes plus focus
+## 2. Consumers and interface contract
 
-| Axis         | Values                                                                                                            | Source                  |
-| ------------ | ----------------------------------------------------------------------------------------------------------------- | ----------------------- |
-| **presence** | `home` · `nearby` · `away` · `extended_away`                                                                      | mostly automatic        |
-| **activity** | `awake` · `winding_down` · `in_bed` · `asleep` · `awake_at_night` · `alarm_ringing` · `snoozing` · `waking`       | sensors, alarms, manual |
-| **focus**    | open catalog (defaults: `personal`, `work`, `mindfulness`, `fitness`, `reading`, `gaming`, `driving`, `shopping`) | **self-declared**       |
+topology is designed to be useful on its own — the panel + map (§7)
+already deliver value without any consumer — and to expose the same
+data cleanly to sister integrations. Two consumer relationships are
+planned around:
 
-- `away` vs. `extended_away` is about return expectation, not distance.
-  The transition is derived primarily from the **zone role** (staying in a
-  zone where an overnight stay is expected), with a time threshold only as
-  fallback.
-- `nearby` is fed by the Proximity integration; `heading_home` combines
-  Proximity direction with the zone flag `departure_implies_homebound`.
-- Focus is declared context (Apple/Google focus modes), never derived.
-  Sleep is **not** a focus — a set focus rests while the person sleeps.
-- **No numeric state encoding.** Context groups ("is in sleep context")
-  become registered conditions for the automation editor plus a `context`
-  attribute (`away`, `home`, `bedtime`, `sleep`, `wakeup`) for templates:
-  _condition for the UI, attribute for Jinja_.
-- Ordinal helpers become attributes: snooze levels are one state
-  (`snoozing`) plus a `snooze_count` attribute.
-- A fourth, non-state axis is master data: **life stage** (`adult`,
-  `teen`, `child`, `toddler`, `senior`, `caregiver`) — drives
-  `home_alone`, default profiles, and message-category limits.
+- **Direct: residents.** residents reads topology attributes and the
+  read hook; each dependent capability degrades cleanly when topology
+  is absent, with a repair issue pointing the user to install it.
+- **Indirect: courier.** courier consumes residents' entities, not
+  topology's. Where a courier feature depends on topology data (e.g.
+  silencing shared channels in areas that need quiet after adjacency
+  propagation), that dependency is invisible to courier: the value
+  arrives inside a residents-owned attribute. topology therefore has
+  no obligations to courier — only through residents.
 
-### 2.3 Relationship model
+### 2.1 What residents reads
 
-The central structural pattern: **everything that references an area, a
-device, a zone, or a person is modeled as a relationship with a role** —
-never as a named single attribute. Each relationship carries:
+| Value                          | Used for                                                                                                                   |
+| ------------------------------ | -------------------------------------------------------------------------------------------------------------------------- |
+| `environment` per area         | exclude `outdoor` areas from `needs_quiet` and from indoor-only occupancy reasoning                                        |
+| area `type`                    | seed defaults only — suggest `sleeping_place` for `bedroom`, `dining_place` for `dining`, etc.                             |
+| adjacency graph                | v3 quiet grading: areas adjacent to a `needs_quiet` area get partial quiet (propagation over edges)                        |
+| edge connections               | propagation: most-permeable `barrier` — `open` (open stairwell) spreads, `door` state-dependent, `solid` blocks            |
+| door/window sensors            | live open/closed refines v3 quiet propagation and feeds perimeter-open checks                                              |
+| floor `level` + vertical edges | reason about areas above/below (e.g. footstep noise over a bedroom); floor-difference distance                             |
+| compass bearing per connection | orientation-aware logic (e.g. west-facing windows for afternoon sun / heat)                                                |
+| consistency / health signal    | raise a degradation repair issue when data a used capability needs is incomplete — never re-deriving topology's own checks |
 
-| Field                        | Purpose                                                           |
-| ---------------------------- | ----------------------------------------------------------------- |
-| `target`                     | polymorphic: `area_id` \| `device_id` \| `zone_id` \| `member_id` |
-| `role`                       | see role sets below                                               |
-| `rank`                       | `primary` \| `secondary`                                          |
-| `schedule`                   | recurring time window                                             |
-| `valid_from` / `valid_until` | one-off validity period                                           |
-| `exclusive`                  | "Julian's room" yes, "kitchen" no                                 |
+Nothing here is required by residents v1. Each consumer is a
+refinement that **degrades cleanly** when topology is absent
+(see §2.3).
 
-Cardinality is always 0..n; relationships are queryable from both sides
-(person → areas and area → persons are the same data).
+### 2.2 Obligations this imposes on topology
 
-**Role sets** (extensible):
+Because residents is the consumer, these obligations bind topology:
 
-- Area, human: `sleeping_place`, `own_room`, `workspace`, `retreat`,
-  `dining_place`, `seat`, `responsible` · pet: `sleeping_place`,
-  `feeding_place`, `water`, `litter`, `allowed`, `forbidden`
-  - `own_room` and the other roles above are **usage** ("whose room /
-    seat / desk"); `responsible` is a distinct **authority** role — who
-    decides over the area and is its notification contact. The two usually
-    point at the same person but are separable (a toddler _uses_ the room;
-    a parent is `responsible` for it). "First vs. sole contact" needs no
-    new field: `rank` (`primary`/`secondary`) gives first vs. fallback,
-    and cardinality / `exclusive` gives sole vs. shared responsibility.
-  - **Implicit default:** where no explicit `responsible` relationship
-    exists for an area, the `own_room` primary holder is responsible by
-    _derivation_ — a live fallback, not a stored value, so it tracks
-    `own_room` automatically; any explicit `responsible` overrides it.
-    Consumers read the **effective** responsible (explicit, else implied);
-    rooms with neither (kitchen, no `own_room`) simply have none.
-- Zone: `own_household`, `secondary_household`, `other_household`,
-  `workplace`, `education`, `routine`, `transit` — plus two independent
-  flags that do most of the work: `overnight_expected` (drives `away` →
-  `extended_away`) and `departure_implies_homebound` (drives
-  `heading_home`)
-- Device: `carried` (counts for presence), `stationary` (does **not**
-  count for presence, but is a channel), `access_token`, `sleep_sensor`,
-  `alarm_source`, `vehicle`
-- Person: kinship, `keeper_of` / `responsible_for`, escalation contact,
-  state inheritance, optional per-pair spoken name
+1. **Key on the HA `area_id` and `floor_id`** — no new identifier
+   space. Both integrations reference areas and floors by the same
+   registry keys (topology consumes the floor registry's `level`
+   rather than inventing a floor ordering), so there is nothing to
+   reconcile.
+2. **Machine-readable values** — enumerated type / environment /
+   trust / passage / barrier / beyond values and a typed adjacency
+   structure; no display-only strings on the contract surface.
+3. **Documented enumerations** — the type catalog, environment
+   values, and edge kinds listed in user docs so residents can
+   validate against them and degrade on unknown values.
+4. **No residents special-casing** — if residents needs something
+   new, it is added as a general topology feature or not at all. This
+   applies equally to any indirect need surfaced via courier: courier
+   never talks to topology, so its wishes only enter topology by
+   first being folded into a general residents-level requirement.
+5. **Detection + read hook** — a documented, cheap way for residents
+   to detect topology and read per-area metadata + the adjacency
+   graph. A WS API is the primary form; per-area entity attributes
+   mirror the same values so classic templates keep working if the
+   WS surface changes.
+6. **Consistency / health signal** — expose a cheap, machine-readable
+   summary of data completeness (ok / warnings + which areas are
+   affected) through the read hook, so a consumer can detect
+   incomplete topology data and degrade **without re-implementing
+   topology's own checks**. The checks themselves (§7) belong to
+   topology and raise topology's own repair issues.
 
-The polymorphic target resolves granularity by available sensors: a
-sleeping place points at an area if nothing more is known, or at a bed
-sensor device if one exists. Shared vs. separate beds fall out of whether
-two persons reference the same device — no extra field.
+### 2.3 Degradation without topology
 
-Multi-instance support is **coupling level 0** only in v1: zone roles are
-a local statement about a remote place; no instance-to-instance transport.
+residents must run fully without topology installed. Each consumer
+has a conservative fallback plus a **repair issue** pointing the user
+to topology when a dependent capability would benefit:
 
-### 2.4 Metadata catalog (v1: categories A, B, C, H)
+| Without topology       | residents' replacement                                              |
+| ---------------------- | ------------------------------------------------------------------- |
+| `environment` per area | assume `indoor` (conservative: no area silently drops out of quiet) |
+| area `type`            | no default suggestions; relationships set manually                  |
+| adjacency graph        | no quiet grading; only per-area `needs_quiet`, no propagation       |
 
-- **A — identity:** display name, spoken name (separate!), kind,
-  membership, life stage, birth date, language/formality, linked HA user,
-  picture
-- **B — area & zone relationships**, **C — device relationships** (2.3)
-- **H — system:** member since/until, active/inactive, visibility flags
-- **Custom fields from day one**; categories E (capabilities), F
-  (patterns), G (comfort) follow in v2.
+These fallbacks live in residents, not in topology; documented here
+only to close the loop on what "cleanly degrade" means.
 
-Model rules: relationship over attribute · queryable from both sides ·
-custom fields from the start · everything captured must be queryable
-(condition, attribute, template) · **empty is always valid**.
+## 3. Technical foundations (spikes)
 
-### 2.5 Derived area properties
+Verified against the Home Assistant **2026.4.4** source installed in
+the devcontainer venv (repo baseline is 2026.7; re-verify live in
+Phase 0). File references are relative to the installed
+`homeassistant/` package.
 
-- **`needs_quiet`** — an area needs quiet when an assigned person is
-  asleep there, or when a valid, occupied sleeping-place relationship
-  exists and it is night. For non-exclusive sleeping areas (sofa bed in
-  the living room) the person's activity state is the only valid source.
-- **Sleeping area is a derivation, not a static flag** — an area is a
-  sleeping area while at least one valid sleeping-place relationship
-  points at it. The sofa-bed weekend case falls out automatically.
-- **`sleeping_capacity`** — static per-area counter of how many people
-  _could_ sleep there. Free overnight places = capacity − valid
-  sleeping-place relationships.
+### 3.1 Area & floor registry consumption — viable
 
-Intrinsic, person-independent area facts — room type, indoor/outdoor,
-adjacency — are deliberately **not** modeled here; they are consumed from
-the area-topology sister integration (see §1, §6). Everything in this
-section is a derivation from _person_ relationships.
+- `helpers/area_registry.py` exposes `AreaRegistry` with typed
+  entries carrying `id`, `name`, `floor_id`, `labels`, and free-form
+  attributes. topology never creates or deletes areas; it only reads
+  entries and (for label projection, §5) mutates the area's own
+  `labels` set.
+- `helpers/floor_registry.py` sorts floors by `level: int | None`;
+  higher `level` = higher up. Where a user has left `level` unset,
+  topology completes the ordering via the floor registry's update
+  API. Floors carry no labels of their own — a graph is not a tag —
+  so all floor annotations stay integration-native.
+- **Caveat:** entries are mutated at the registry level, not via a
+  config entry; topology must own its writes cleanly (track what it
+  set, only clear its own values, never touch user-authored fields).
 
-### 2.6 Home mode: three axes
+### 3.2 Storage: `helpers.storage.Store` — viable
 
-A mode is an interpretation for automations to condition on — **it never
-executes actions** (the key lesson from FHEM HOMEMODE's mistakes).
+- Areas and floors already live in the HA registries; topology has
+  no need for per-area config subentries (there is no user "add area"
+  flow — the area already exists). Instead:
+  - a single top-level `Store` keyed on `area_id` for annotations
+    (type, environment, trust, per-side `beyond`, side bearings),
+  - a companion `Store` for the graph (edges keyed on a stable
+    `(area_id, area_id)` pair or an internal `edge_id`, each carrying
+    its list of connections; connections carry an internal
+    `connection_id` so a door/window `binary_sensor` link is stable
+    across renames), and
+  - a small home-level document for occupancy extent
+    (`whole_property` vs. `unit_within_building`).
+- All stores carry a schema version and a migration hook from day
+  one (Phase 2). The main config entry is a bare hub — no data on it,
+  no reloads on annotation edits.
 
-- **Axis 1 — occupancy** (derived only): `empty` · `pets_only` ·
-  `vulnerable_only` · `guests_only` · `normal`. Order is the precedence
-  rule (lowest matching row wins).
-- **Axis 2 — phase** (the only _ordered_ axis): `morning` · `day` ·
-  `evening` · `night` · `quiet`. Source precedence: **resident activity >
-  sun position > wall clock**. Transitions support offsets, virtual
-  earliest/latest bounds (Adaptive Lighting's primitives), debounce, and
-  weekday/weekend variants. The phase is **monotonic** within a day —
-  no backwards flapping; backwards only via override. A phase override
-  ends silently "when the derivation catches up".
-- **Axis 3 — exception** (manual, optional expiry): `vacation` · `party` ·
-  `illness` · `contractor` · `moving` · `emergency` · `maintenance`;
-  optionally scoped to a single area (no per-area mode machine).
+### 3.3 Read hook: WebSocket API + attribute mirror — viable
 
-**Override** per axis: derived → overridden-with-expiry → pinned.
-**Simulation** is distinct from override: mandatory expiry, arbitrary
-(even impossible) combinations, permanently visible, clean rollback.
-**Preview/hindsight** computes (never sets) the mode for a virtual point
-in time, including an annual sweep to flag degenerate configurations.
+- The detection + read hook (obligation §2.2 #5) is served by a
+  small WebSocket API namespace (`topology/subscribe_areas`,
+  `topology/subscribe_graph`, `topology/health`). Every command sees
+  the authenticated user server-side via `ActiveConnection.user`
+  (`components/websocket_api/connection.py:39-98`); read is open,
+  writes are admin-gated.
+- The same values are mirrored as attributes on per-area entities
+  (§3.5 below): so consumers that prefer classic templates or state
+  triggers keep working if the WS surface has to change. The
+  attribute contract and the WS contract carry the same values; both
+  are frozen together at the end of Phase 5.
 
-## 3. Glossary (binding terms)
+### 3.4 Sidebar panel with server-side authorization — viable
 
-The English identifiers below are binding for code, entity IDs, state
-values, and services (German shown for reference only).
+- Register a sidebar panel via
+  `panel_custom.async_register_panel(module_url=...)` plus
+  `hass.http.async_register_static_paths([StaticPathConfig(...)])`
+  (full pattern in `components/dynalite/panel.py:98-116`).
+- The panel is topology's primary UI: annotating areas, drawing
+  edges, choosing connection presets, and inspecting the schematic
+  map (§7). WS writes are `@require_admin`; reads are open.
+- **v1** ships a 2D per-floor schematic. **v2+** upgrades to the
+  rotatable/zoomable 3D house view (WebGL / three.js, bundled in the
+  panel, no external assets). No external CDNs or fonts — everything
+  ships with the integration.
 
-| EN                                                                                                                                                                               | DE                                            |
-| -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------- |
-| `residents` (domain), household                                                                                                                                                  | Haushalt                                      |
-| member                                                                                                                                                                           | Person (Mensch oder Tier)                     |
-| membership: `resident`, `regular`, `guest_slot`                                                                                                                                  | Zugehörigkeit: Bewohner, Stammgast, Gastplatz |
-| kind: `human`, `pet`                                                                                                                                                             | Typ: Mensch, Tier                             |
-| life stage: `adult`, `teen`, `child`, `toddler`, `senior`, `caregiver`                                                                                                           | Lebensphase                                   |
-| presence: `home`, `nearby`, `away`, `extended_away`                                                                                                                              | Anwesenheit                                   |
-| activity: `awake`, `winding_down`, `in_bed`, `asleep`, `awake_at_night`, `alarm_ringing`, `snoozing`, `waking`                                                                   | Aktivität                                     |
-| context: `away`, `home`, `bedtime`, `sleep`, `wakeup`                                                                                                                            | Kontextgruppe                                 |
-| focus, focus catalog                                                                                                                                                             | Focus                                         |
-| `heading_home`, `home_alone`                                                                                                                                                     | auf dem Heimweg, allein zu Hause              |
-| `needs_quiet`, `sleeping_capacity`                                                                                                                                               | ruhebedürftig, Schlafgelegenheit              |
-| mode axes: `occupancy_mode`, `phase`, `exception`                                                                                                                                | Modus: Belegung, Phase, Ausnahme              |
-| occupancy: `empty`, `pets_only`, `vulnerable_only`, `guests_only`, `normal`                                                                                                      | Belegungswerte                                |
-| phase: `morning`, `day`, `evening`, `night`, `quiet`                                                                                                                             | Phasenwerte                                   |
-| exception: `vacation`, `party`, `illness`, `contractor`, `moving`, `emergency`, `maintenance`                                                                                    | Ausnahmewerte                                 |
-| `overridden` / `pinned`, source: `derived` \| `overridden`                                                                                                                       | übersteuert / eingefroren                     |
-| simulation, preview, `virtual_time`, `annual_sweep`                                                                                                                              | Simulation, Vorschau                          |
-| relation: `target`, `role`, `rank` (`primary`/`secondary`), `schedule`, `valid_from`/`valid_until`, `exclusive`                                                                  | Beziehung                                     |
-| area roles: `sleeping_place`, `own_room`, `workspace`, `retreat`, `dining_place`, `seat`, `responsible`, `feeding_place`, `water`, `litter`, `allowed`, `forbidden`              | Ortsrollen                                    |
-| zone roles: `own_household`, `secondary_household`, `other_household`, `workplace`, `education`, `routine`, `transit`; flags `overnight_expected`, `departure_implies_homebound` | Zonenrollen                                   |
-| device roles: `carried`, `stationary`, `access_token`, `sleep_sensor`, `alarm_source`, `vehicle`                                                                                 | Geräterollen                                  |
-| `spoken_name`, `capabilities`, `patterns`, `comfort`, `custom_field`                                                                                                             | Stammdaten                                    |
-| `last_arrival`, `last_departure`, `last_absence_duration`, `expected_return`, `snooze_count`                                                                                     | Statistik                                     |
+### 3.5 Per-area entities — viable
 
-## 4. Technical foundations (verified spikes)
+- One `sensor.topology_area_<slug>` entity per HA area, state = the
+  area's `type` (or `unknown`), attributes = `environment`, `trust`,
+  bearings, floor `level`, adjacency summary, perimeter derivation.
+  Entity state and attributes are the classic-templates fallback for
+  the WS read hook.
+- A household-level `binary_sensor.topology_perimeter_open` reflects
+  whether any perimeter connection with a linked `binary_sensor` is
+  currently open. Additional aggregates (e.g. count of unresolved
+  consistency warnings) live on a diagnostic sensor.
 
-Verified against the Home Assistant **2026.4.4** source installed in the
-devcontainer venv (repo baseline is now 2026.7; re-verify live in
-Phase 0). File references are relative to the installed `homeassistant/`
-package.
+### 3.6 Custom triggers and conditions — deferred to v2
 
-### 4.1 Custom triggers and conditions — viable
+- The new-style Trigger/Condition platform API
+  (`helpers/trigger.py:174-330`,
+  `helpers/condition.py:287-329, 687-702`) works for custom domains,
+  but topology's v1 surface is state-shaped, not event-shaped. Users
+  drive automations off the per-area entities (§3.5) and the WS API;
+  custom triggers/conditions are considered again once real-world
+  usage identifies which are worth the maintenance cost.
 
-- The trigger platform API loads generically via
-  `async_process_integration_platforms` (`helpers/trigger.py:174-235`) —
-  custom integrations are included; there is no core-only whitelist.
-- New-style API: `Trigger` base class with `async_validate_config` +
-  `async_attach_runner`, exposed via `async_get_triggers` returning
-  `dict[str, type[Trigger]]` (`helpers/trigger.py:258-330, 952-985`).
-  Key `"_"` maps to the bare domain, other keys become
-  `residents.<key>` (`helpers/automation.py:59-77`).
-- Conditions are symmetric: `Condition` with `async_validate_config` +
-  `async_get_checker`, via `async_get_conditions`
-  (`helpers/condition.py:287-329, 687-702`).
-- Editor metadata comes from `triggers.yaml` / `conditions.yaml`
-  (loaded at `helpers/trigger.py:1432-1453`,
-  `helpers/condition.py:1699-1712`) plus `strings.json`
-  (`triggers`/`conditions` blocks) and `icons.json`; descriptions are
-  pushed to the frontend via the WebSocket commands
-  `trigger_platforms/subscribe` / `condition_platforms/subscribe`
-  (`components/websocket_api/commands.py:551-647`).
-- The Labs "new triggers and conditions" gate only hides a hard-coded
-  list of **core** domains (`components/automation/__init__.py:120-227`);
-  a custom domain is served unconditionally.
-- **Caveat:** the API is officially a preview feature. Reference
-  implementation: `components/switch/`. Mitigation: keep entity states
-  and attributes stable so classic state triggers remain a full fallback.
+## 4. Architecture decisions
 
-### 4.2 Config subentries — viable for per-member data
+Recorded as ADRs in [DECISIONS.md](./DECISIONS.md); summary of the
+topology-level choices:
 
-- `ConfigSubentryFlow` supports `user` and `reconfigure` steps (no
-  options flow for subentries) — `config_entries.py:3592-3749`; storage
-  format `{data, subentry_id, subentry_type, title, unique_id}`
-  (`config_entries.py:336-388`).
-- A relationship list (target + role + rank) fits in a **single form**
-  using `ObjectSelector(multiple=True, fields={...})` with nested
-  selectors per field (`helpers/selector.py:1567-1646`); areas/devices/
-  entities have dedicated selectors, zones resolve via
-  `EntitySelector(domain="zone")`.
-- Limits to design around: no cross-subentry references (manual
-  `subentry_id` bookkeeping, no referential integrity), updates reload
-  the whole config entry when using `async_update_reload_and_abort`, and
-  the nested-selector UX is functional but not polished.
-- References: `components/kitchen_sink/config_flow.py`,
-  `components/google_generative_ai_conversation/config_flow.py`.
-
-### 4.3 Panel with server-side user enforcement — viable
-
-- Register a sidebar panel from the integration via
-  `panel_custom.async_register_panel(module_url=...)` +
-  `hass.http.async_register_static_paths([StaticPathConfig(...)])` —
-  full pattern in `components/dynalite/panel.py:98-116`.
-- Every WebSocket command sees the authenticated user server-side:
-  `ActiveConnection.user` (`components/websocket_api/connection.py:39-98`);
-  the frontend cannot spoof it. Per-user data filtering pattern:
-  `components/frontend/storage.py:167-215`; admin gating via
-  `@require_admin`.
-- `person` stores `user_id` (`components/person/__init__.py:65`); there
-  is no ready-made user→person lookup helper, but it is a trivial
-  attribute scan.
-
-## 5. Architecture decisions
-
-Recorded as ADRs in [DECISIONS.md](./DECISIONS.md); summary:
-
-- **Storage (was open question 5.1): hybrid.** One config subentry per
-  member for master data and relationships (UI, registry cleanup, and
-  reconfigure for free); a `helpers.storage.Store` exclusively for
-  runtime state (state axes, statistics, guest-slot occupancy). Runtime
-  state never lives in config entries.
-- **Entity granularity (5.2): hybrid.** One entity per state axis
-  (presence, activity, focus, `heading_home`, …); master data and
-  statistics as attributes. No entity-per-field explosion.
-- **Trigger API (5.8): adopt the new platform API, with fallback.**
-  Entity states/attributes are a stable public contract so classic state
-  triggers keep working if the preview API changes.
+- **Storage: single `Store` per aspect, keyed on registry IDs.** No
+  config subentries per area — areas are user-created in the area
+  registry, topology only annotates them. The main config entry is a
+  bare hub. Runtime perimeter/open state is derived from linked HA
+  sensors and is never persisted.
+- **Panel-first configuration.** Type/environment/trust are simple
+  enough for a compact editor per area; adjacency and connections
+  need a spatial editor from day one. YAML-only configuration is not
+  a goal — connections between areas are inherently graph-shaped and
+  unpleasant to hand-edit.
+- **Read hook shape: WS API primary, attribute mirror on entities as
+  fallback.** Both frozen together at the end of Phase 5.
 - **HA baseline: 2026.7** (minimum in `hacs.json`, enforced by
   `script/ha-version-sync`).
 - **Template sync stays enabled** (upstream is the maintainer's own
   blueprint; project-identity files are protected via
   `.templatesyncignore`).
-- **Label projection (Core interop): one-way, opt-in.** residents may
-  project stable master data — `membership`, `life_stage` — onto the
-  person/member entities as namespaced, integration-owned labels
-  (`residents:adult`, …) so Core label features (automation `target`, UI
-  filters, voice) reach household roles. Rules: structural / low-
-  cardinality facts only — **never** state axes, `needs_quiet`, or mode
-  (registry churn); create/update/delete only labels we own (tracked in
-  our store, marked via `description`), never user labels; at most a
-  one-time opt-in _import_, never live label consumption. Labels can only
-  carry per-object single values — areas, entities, devices; **floors
-  cannot carry labels** (verified in `helpers/floor_registry.py`), and a
-  graph is not a tag, so relationships stay integration-native. On
-  removal, projected labels are **kept by default** (a deliberate
-  leave-behind so the facts survive) and purgeable on request; anything
-  not projectable exits via the diagnostics export (Phase 6). topology
-  owns the area-facing half — see [PLAN-topology.md](./PLAN-topology.md).
+- **Label projection (Core interop): one-way, opt-in, owned.**
+  topology may project `environment` (indoor/outdoor), area `type`,
+  and the trust class onto **area** labels (`topology:outdoor`,
+  `topology:bedroom`, `topology:public`, …) so Core label features —
+  automation `target`, UI filters, voice — reach these facts without
+  going through topology's read hook. The trust label is especially
+  useful as a security-automation target. Rules:
+  - **Floors and the adjacency graph are not projectable.** Floors
+    carry no labels (verified in `helpers/floor_registry.py`) and a
+    graph is not a tag; these stay topology-native (or a diagnostics
+    export).
+  - **Owned + namespaced.** topology creates/updates/deletes only
+    its own labels (tracked in its store, marked via the label
+    `description`), never user labels. A one-time opt-in _import_
+    may seed `environment` / `type` from existing user labels;
+    there is no live consumption.
+  - **Exit.** Because labels live in the Core registry, projected
+    labels survive uninstalling topology — kept by default as a
+    deliberate leave-behind, purgeable on request. That
+    single-valued per-area subset is the only part of topology's
+    data that outlives the integration.
 
-**Still open** (decide before Phase 3):
+**Still open** (decide before the referenced phase):
 
-- 5.3 — activity sources in v1: proposal is manual + alarm sensor +
-  optional sensor link, no own heuristics.
-- 5.4 — final entity-ID naming scheme and its relation to `person.*` IDs.
-- Focus catalog openness vs. registered trigger values; size of the
-  exception value set (closed core set + custom values is the tendency).
+- 4.1 — final entity-ID naming scheme for per-area entities and the
+  household perimeter sensor (before Phase 4).
+- 4.2 — whether floor `level` completion writes back to the HA floor
+  registry immediately, or holds the completion in topology's own
+  store until the user confirms (before Phase 2).
+- 4.3 — WS namespace and command names for the read hook; whether
+  they carry a version tag (before Phase 5).
+- 4.4 — connection preset catalogue: whether the initial set is
+  closed (fewer surprises for consumers) or extensible via YAML
+  (before Phase 3).
 
-## 6. Non-goals
+## 5. Non-goals
 
-Residents will **never** ship:
+topology will **never** ship:
 
-- own presence detection, geofencing, BLE, or ping
-- own distance/direction math (consume Proximity)
-- an alarm clock or wake-time toolkit (consume HA schedules + companion
-  app alarm sensor)
-- access control (access tokens are metadata only)
-- alarm logic or alarm state (belongs to `alarm_control_panel`/Alarmo)
-- actions attached to the mode object (HOMEMODE's `HomeCMD` mistake)
-- own transport between HA instances (consume `remote_homeassistant` if
-  coupling level 1 is ever wanted); no federation while Core has none
-- migration tooling from FHEM or ioBroker
-- text-command control
-- own area typing, indoor/outdoor classification, or a room-adjacency /
-  floorplan graph — house topology, not resident data: consume a
-  dedicated area-topology sister integration and degrade + raise a repair
-  issue when it is absent (person-relative area meaning stays here)
-- labels as a second source of truth — runtime state is never mirrored to
-  labels, and labels are never read as a live input (label projection is
-  one-way, opt-in, and owned; a one-time import is the only inbound path)
+- **Area or floor creation.** Areas and floors are HA registry
+  concepts; topology only annotates them. If an area is missing, the
+  user creates it in HA (or via another integration); topology raises
+  no config flow for it.
+- **Metric coordinates.** No stored x/y/z, no room dimensions in
+  metres, no wall lengths. The per-floor map is a graph layout, not a
+  surveyed floorplan (§7).
+- **Room shape.** Square, rectangular, L-shaped, and polygonal areas
+  are all the same to the model; a cardinal side (N/E/S/W) is a rough
+  _direction label_ that can carry several walls, windows, or
+  connections at once. Odd shapes need no shape field.
+- **Observer-relative directions.** No `left`, `right`, `front`,
+  `back` — ambiguous without a fixed viewpoint. Only cardinal
+  bearings on connection sides.
+- **Automation actions.** topology publishes data; it never executes
+  actions (the HOMEMODE / HomeCMD mistake). Perimeter alerts, quiet
+  automations, and security routines are built by the user (or by
+  residents / courier) against topology's entities and read hook.
+- **Access control.** Trust is descriptive metadata used by consumers
+  to decide policy; topology itself grants no permissions and gates
+  no doors.
+- **Own presence, alarm, or notification logic.** These belong to
+  residents, `alarm_control_panel` / Alarmo, and courier respectively.
+- **Migration tooling from other floorplan systems** (SweetHome3D,
+  IKEA Home Planner, CAD exports). Import formats can be considered
+  in v2+ if a clear standard emerges.
+- **Labels as a second source of truth.** Runtime state is never
+  mirrored to labels, and labels are never read as a live input;
+  label projection is one-way, opt-in, and owned, with at most a
+  one-time import.
+- **A residents dependency in either direction.** topology stands
+  alone; residents consumes it optionally.
 
-## 7. Implementation phases
+## 6. Implementation phases
 
-Each phase ends with `script/check` and `script/hassfest` green and the
-listed definition of done. Tests are written per phase
-(`tests/` mirrors the package structure).
+Each phase ends with `script/check` and `script/hassfest` green and
+the listed definition of done. Tests are written per phase (`tests/`
+mirrors the package structure).
 
 ### Phase 0 — Live spike verification (throwaway)
 
-- **Scope:** After the devcontainer rebuild on HA 2026.7: register one
-  trivial trigger + condition via the new platform API and confirm they
-  appear and fire in the automation editor; click through a subentry
-  form with an `ObjectSelector` relationship list.
-- **DoD:** documented go/no-go for the trigger API (screenshot evidence);
-  spike code deleted. If no-go: Phase 5 falls back to classic state
-  triggers only.
+- **Scope:** After the devcontainer rebuild on HA 2026.7: register a
+  minimal sidebar panel via `panel_custom` that opens a WS command
+  gated by `@require_admin`; read from the area registry; mutate one
+  test-only area label to verify write-back works and survives a
+  restart; write and read back one floor `level` update.
+- **DoD:** documented go/no-go for panel + WS + registry mutation
+  (screenshot evidence); spike code deleted. If no-go on registry
+  mutation: label projection (§5) becomes a diagnostics export only
+  and the panel edits fall back to a topology-owned store.
 
 ### Phase 1 — Skeleton cleanup
 
-- **Scope:** Remove the blueprint example: platforms `fan/`, `switch/`,
-  `number/`, `button/`, example `sensor/`/`binary_sensor/` entities,
-  `api/` client, example service; empty out `services.yaml`,
-  `translations/en.json`, `const.py` example keys. The integration loads
-  with a config entry and zero entities.
-- **Packages:** nearly all under `custom_components/residents/`.
+- **Scope:** Remove the blueprint example: platforms `fan/`,
+  `switch/`, `number/`, `button/`, example `sensor/` / `binary_sensor/`
+  entities, `api/` client, example service; empty out
+  `services.yaml`, `translations/en.json`, `const.py` example keys.
+  The integration loads with a single hub config entry and zero
+  entities.
+- **Packages:** nearly all under `custom_components/topology/`.
 - **DoD:** installable, loads/unloads cleanly, checks green.
 
-### Phase 2 — Data model, config flows, storage
+### Phase 2 — Data model and storage
 
-- **Scope:** Domain dataclasses (member, membership, kind, life stage,
-  metadata A/B/C/H, relations incl. validity windows); main entry =
-  household; one subentry per member (`subentry_type` per membership or a
-  single `member` type — decide in flow design); relationship lists via
-  `ObjectSelector`; runtime `Store` with schema version + migration hook.
-- **Packages:** `data.py`, `config_flow_handler/` (subentry flow,
-  schemas, validators), `coordinator/` (member registry), `entity/`.
-- **DoD:** create/edit/remove members via UI; guest-slot assignment and
-  expiry stored; state survives restart; flow + store round-trip tests.
+- **Scope:** Domain dataclasses (area annotation with type /
+  environment / trust / per-side bearings and `beyond`; edge with
+  its list of connections; connection with passage / barrier /
+  optional side / optional glazed / optional sensor link; home-level
+  occupancy extent); three `Store`s (areas, graph, home) with
+  schema versions and migration hooks; ID stability for connections
+  across renames; area/floor registry consumption (read entries;
+  complete floor `level` where unset per ADR 4.2).
+- **Packages:** `data.py`, `coordinator/` (registry watcher + graph
+  index), `store/` (schemas, migrations, atomic writes).
+- **DoD:** data survives restart; area / floor renames preserve
+  annotations and connection sensor links; store round-trip and
+  migration tests; `hassfest` and `script/check` green.
 
-### Phase 3 — State machines and per-member entities
+### Phase 3 — Adjacency, connections, and the `beyond` model
 
-- **Scope:** Presence and activity state machines with manual services
-  and automatic transitions (zone-role-driven `extended_away`,
-  `heading_home` from Proximity + zone flag, alarm-sensor wake-up);
-  focus with catalog, expiry, source flag; per-member entities (one per
-  axis) with statistics attributes; **virtual clock abstraction first** —
-  all time-dependent logic reads an injectable clock so simulation and
-  tests can drive it.
-- **Packages:** new domain-logic module (e.g., `engine/` — needs the
-  approved-package exception in AGENTS.md, or live under
-  `coordinator/`), `select/`, `sensor/`, `binary_sensor/`,
-  `service_actions/`.
-- **DoD:** a member walks through a full simulated day correctly;
-  state-machine unit tests with time simulation; entity IDs and
-  attributes frozen as public interface (see §9).
+- **Scope:** Connection preset catalogue expanding to the two-axis
+  `passage` + `barrier` form (ADR 4.4); interior vs. exterior
+  derivation from whether the other side of the edge exists; door /
+  window `binary_sensor` linking with graceful handling of a
+  vanished sensor; `beyond` per unconnected side (`outdoor` /
+  `neighbor` / `earth`); home-level occupancy extent with sane
+  defaults (a `neighbor` side ⇒ `unit_within_building`).
+- **DoD:** an example home covering an apartment (with a shared
+  hallway) and a two-storey house (with an open stair and a lift)
+  can be entered end-to-end via WS commands, round-trip through the
+  store, and re-load correctly; connection-preset expansion tests.
 
-### Phase 4 — Aggregates and home mode
+### Phase 4 — Derivations and per-area entities
 
-- **Scope:** Household aggregates (counters with list/first/last as
-  attributes, `home_alone` incl. who/type/life stage, `anyone_asleep`,
-  `guests_present`, free overnight places); derived area properties
-  (`needs_quiet`, sleeping-area derivation, `sleeping_capacity`); mode
-  axes with derivation, override (expiry, pinned, catch-up), simulation
-  with mandatory expiry, preview + annual sweep.
-- **DoD:** scenario golden tests (family evening, vacation, guests-only,
-  sofa-bed weekend) pass; simulation is visibly flagged and rolls back
-  cleanly.
+- **Scope:** Derived facts computed from the stored model —
+  perimeter connections (trust delta + explicit `perimeter` flag),
+  effective trust behind a bare exterior connection, adjacency
+  summaries per area (list of neighbours, most-permeable barrier
+  per edge). Per-area `sensor.topology_area_<slug>` entities
+  (state = `type`, attributes = environment / trust / floor level /
+  adjacency summary / perimeter membership); household
+  `binary_sensor.topology_perimeter_open` and diagnostic sensor(s)
+  for consistency warning counts.
+- **DoD:** derivations recompute correctly on annotation changes
+  and sensor state changes; entity IDs and attribute keys land on
+  their final names (freeze target for Phase 5); scenario tests for
+  apartment / house / mixed-use.
 
-### Phase 5 — Triggers and conditions
+### Phase 5 — Read hook (public interface freeze)
 
-- **Scope:** `trigger.py` + `condition.py` with the new platform API;
-  `triggers.yaml` / `conditions.yaml`, `strings.json`, `icons.json`;
-  target filters (specific member, membership, life stage, kind, any);
-  context-group conditions replacing numeric encodings; documented
-  classic-trigger fallback recipes.
-- **DoD:** own triggers/conditions selectable in the automation editor
-  and firing; automation setup tests.
+- **Scope:** WebSocket API (`topology/subscribe_areas`,
+  `topology/subscribe_graph`, `topology/health`) delivering the
+  full model in a stable schema; attribute mirror on the per-area
+  entities carrying the same values; documented enumerations for
+  every field; a machine-readable **consistency / health signal**
+  (obligation §2.2 #6) that summarises data completeness without
+  re-running topology's own checks on the consumer side.
+- **DoD:** the WS surface and attribute contract are documented in
+  `docs/user/` and covered by contract tests; residents can be
+  pointed at a live topology installation and read every value
+  listed in §2.1 with only the documented interface. From here on
+  the interface is frozen under the §8 policy.
 
-### Phase 6 — Services, diagnostics, repairs
+### Phase 6 — Label projection & repair issues
 
-- **Scope:** Public service actions (set state, occupy/assign/release
-  guest slot, add/remove relation, set/end focus, override mode,
-  start/stop simulation, set exception with optional area scope);
-  diagnostics with `async_redact_data`; repair issues for missing
-  consumed sources (Proximity, alarm sensor), incomplete topology data
-  (read from its consistency signal, not re-derived), and broken
-  references.
-- **DoD:** services documented in `services.yaml` with selectors;
-  diagnostics redact personal data; repairs appear and resolve.
+- **Scope:** One-way projection of `environment` / `type` / trust
+  onto namespaced area labels (`topology:*`) per ADR "Label
+  projection"; one-time opt-in import from existing user labels;
+  ownership tracking so uninstall keeps the labels by default and
+  purges only on request; repair issues for broken sensor links,
+  contradictory bearings, exterior windows on non-`outdoor` sides,
+  isolated indoor areas, and any consistency warning that also
+  drives the health signal (§5).
+- **DoD:** projected labels appear / disappear cleanly on
+  annotation changes; import is idempotent; repair issues fire and
+  clear against a scripted scenario.
 
-### Phase 7 — Admin panel
+### Phase 7 — Panel: 2D per-floor map
 
-- **Scope:** Sidebar panel (`panel_custom` + static assets) for managing
-  members, relationships, and modes; WebSocket API with server-side
-  authorization (`connection.user`, admin-gated writes). Self-service
-  view for logged-in users is **v2**.
-- **DoD:** panel usable for full household administration; WS command
-  tests incl. authorization denial paths.
+- **Scope:** Sidebar panel with a per-floor schematic map (areas
+  as blocks tinted by `trust`, icons by `type`, indoor/outdoor
+  styling by `environment`; connections styled by `passage` /
+  `barrier`); side-by-side editor for area annotations and edge /
+  connection lists via named presets; the map doubles as the
+  consistency view — the diagnostics from Phase 6 are surfaced
+  visually where they occur.
+- **Packages:** `panel/` (bundled static assets, no external
+  CDNs), `websocket/` (write commands, admin-gated).
+- **DoD:** a fresh install can be fully configured through the
+  panel without ever touching YAML; the map keeps up with mutations
+  in real time via WS subscriptions.
 
-### Phase 8 — Docs and release readiness
+### Phase 8 — Services, diagnostics, repairs
 
-- **Scope:** Write real `docs/user/*`; full `ARCHITECTURE.md` rewrite;
-  README feature docs; brands assets; first release via release-please;
-  HACS listing checklist.
-- **DoD:** a stranger can install and configure Residents from the docs
-  alone.
+- **Scope:** Public service actions (set / clear area annotations,
+  add / remove / update connections, set occupancy extent, complete
+  a floor `level`, purge projected labels); diagnostics with
+  `async_redact_data` (redact area names, floor names, sensor
+  entity IDs); ensure every repair issue introduced in Phase 6 has
+  a working resolver flow.
+- **DoD:** services are documented in `services.yaml` with
+  selectors; diagnostics redact identifying data; repairs appear
+  and resolve on a scripted scenario.
 
-## 8. v1 scope mapping
+### Phase 9 — Docs and release readiness
 
-| v1 item (from the idea collection)                                | Phase                |
-| ----------------------------------------------------------------- | -------------------- |
-| Membership & kind model (resident/regular/guest_slot × human/pet) | 2                    |
-| Metadata categories A, B, C, H + custom fields                    | 2                    |
-| Area/zone/device relationships incl. flags, queryable both ways   | 2 (+4 reverse views) |
-| Both state axes, manual + automatic transitions                   | 3                    |
-| Focus axis with catalog, expiry, visibility                       | 3                    |
-| Transition conditions (sun, offset, bounds, clock, presence)      | 3–4                  |
-| Household aggregates                                              | 4                    |
-| `needs_quiet` per area (derived), `sleeping_capacity`             | 4                    |
-| Mode: all three axes, derivation + override with expiry           | 4                    |
-| Simulation with mandatory expiry; preview + annual sweep          | 4                    |
-| Context groups as registered conditions                           | 5                    |
-| Own triggers and conditions                                       | 5                    |
-| Services                                                          | 6                    |
-| Configuration UI (admin view)                                     | 2 + 7                |
+- **Scope:** Write real `docs/user/*` (concepts, configuration via
+  panel, WS API, label rules, exit behaviour); full
+  `ARCHITECTURE.md` rewrite; README feature docs and screenshots;
+  brands assets; first release via release-please; HACS listing
+  checklist.
+- **DoD:** a stranger can install and configure topology from the
+  docs alone; residents can be pointed at the documented interface
+  contract with no repository access.
 
-v2 (later): person↔person relationships incl. state inheritance and
-escalation contacts, metadata E/F/G, self-service panel, return
-prediction, starter profiles, full transition-condition set. v3: portable
-member profiles, coupling level 1 via `remote_homeassistant`,
-plausibility checks, floor-hierarchy quiet grading (depends on the
-area-topology sister integration).
+### Later (v2+), not v1
 
-## 9. Public interface commitments
+- **3D house view.** Floors stacked by `level` into one orbit /
+  zoom "house", vertical connections drawn between floors, outdoor
+  areas placed around the stack (WebGL / three.js bundled in the
+  panel).
+- **Procedural layout.** Positions and _sizes_ come from a graph
+  layout, not coordinates. A hub is sized by its degree so several
+  rooms attach along one face — the hallway with three rooms off
+  its north side becomes a long block, not a point. Some graphs
+  have no clean realization; the layout falls back to a looser
+  arrangement, with optional **presentation-only** drag-to-declutter
+  hints stored strictly separate from the semantic model.
+- **Starter templates.** One-click scaffolds that create several
+  areas + connections at once (e.g. "apartment" → typical rooms + a
+  `shared` hallway + a perimeter front door; "two-storey house" →
+  ground and upper landing joined by an open stair). Deferred
+  deliberately: high variant / maintenance cost and a real risk the
+  template never matches the actual home. The two-axis connection
+  presets and the `type` cascade cover everyday setup without it.
+- **Custom triggers / conditions.** Add-on later if real usage
+  demonstrates need (§3.6).
+- **Borrowed-light reasoning.** Separating light as its own
+  permeability axis, distinct from `barrier` (§1).
 
-From the end of Phase 3, the following are treated as a public API with a
-deprecation policy (one minor release with repair-issue warning):
+## 7. v1 scope mapping
 
-- entity IDs and their state values per axis (documented enumerations)
-- attribute names and machine-readable formats (no display-only strings)
-- mode entity values and the `source: derived | overridden` attribute
-- service names and signatures
+| v1 item                                                                            | Phase   |
+| ---------------------------------------------------------------------------------- | ------- |
+| Area annotation store (type / environment / trust) with cascade defaults           | 2       |
+| Floor-`level` consumption + user-supplied completion where unset                   | 2       |
+| Adjacency graph + connections (`passage` + `barrier`, side, sensor, glazed)        | 3       |
+| Connection presets expanding to the two-axis form                                  | 3       |
+| Outer-wall `beyond` classification + home occupancy extent                         | 3       |
+| Derived perimeter connections + explicit `perimeter` flag                          | 4       |
+| Per-area entities + household `perimeter_open` binary sensor                       | 4       |
+| Read hook: WS API + attribute mirror + consistency/health signal                   | 5       |
+| Label projection of `environment` / `type` / trust (one-way, opt-in)               | 6       |
+| Repair issues (broken sensor link, contradictions, isolated areas, misplaced exts) | 6       |
+| Admin panel with 2D per-floor map + consistency view                               | 7       |
+| Services and diagnostics                                                           | 8       |
+| Docs and first release                                                             | 9       |
 
-Primary consumer: **courier** — see
-[PLAN-courier.md](./PLAN-courier.md) for exactly what it reads and why
-soft coupling requires this stability.
+## 8. Public interface commitments
 
-## 10. Open questions
+From the end of Phase 5, the following are treated as a public API
+with a deprecation policy (one minor release with repair-issue
+warning):
+
+- Entity IDs and their state values / attribute keys per per-area
+  entity and the household perimeter sensor (documented enumerations).
+- WebSocket command names, payloads, and their response schemas.
+- The consistency / health signal shape (obligation §2.2 #6).
+- The label projection namespace (`topology:*`), the field set
+  projected, and the exit behaviour.
+- The service action names and their signatures.
+
+Primary consumer: **residents** — see the sister repository for what
+it reads and why soft coupling requires this stability. courier
+consumes residents, not topology, so its stability contract is with
+residents; topology's obligations to courier are always mediated by
+residents (§2).
+
+## 9. Open questions
 
 Tracked here until decided; each gets an ADR when closed:
 
-1. Entity-ID scheme and relation to `person.*` (before Phase 3)
-2. Activity sources in v1 (before Phase 3)
-3. Focus catalog: closed core set + generic custom trigger vs. dynamic
-   registration (before Phase 5)
-4. Exception value set: closed vs. extensible (before Phase 4)
-5. Whether `waking`/`winding_down` stay dedicated states or become
-   derivations (before Phase 3)
-6. Whether person-state simulation (beyond mode simulation) is ever safe
-   (not before v2)
+1. Entity-ID naming for per-area entities and the household
+   perimeter sensor (before Phase 4).
+2. Floor `level` completion path: write back to the HA floor
+   registry immediately, or hold in topology's store until the user
+   confirms (before Phase 2).
+3. WS namespace, command names, and whether the read hook carries a
+   version tag (before Phase 5).
+4. Connection preset catalogue: closed vs. YAML-extensible
+   (before Phase 3).
+5. Whether the `perimeter` flag is per-connection only, or also
+   per-edge for the "shared same-class boundary" case (before Phase 4).
+6. Whether the 2D map ships as SVG or Canvas — trade-off between
+   accessibility (SVG) and later 3D reuse (Canvas / WebGL)
+   (before Phase 7).
