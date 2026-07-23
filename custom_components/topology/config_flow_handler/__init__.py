@@ -1,23 +1,14 @@
 """
 Config flow handler package for topology.
 
-This package implements the configuration flows for the integration, organized
-for maintainability and scalability.
-
 Package structure:
-------------------
-- config_flow.py: Main configuration flow (user setup, reauth, reconfigure)
-- options_flow.py: Options flow for post-setup configuration changes
-- subentry_flow.py: Template for implementing subentry flows (multi-device support)
-- schemas/: Voluptuous schemas for all forms (user, options, reauth, etc.)
-- validators/: Validation logic for user inputs and credentials
-- handler.py: Backwards compatibility wrapper (imports from above modules)
+- config_flow.py: Main config flow (user setup; reconfigure in Phase 2)
+- schemas/: Voluptuous schemas for the flow steps
+- validators/: Validation functions for the flow steps
+- handler.py: Backwards-compatibility re-export wrapper
 
-Usage:
-------
-The main config flow handler is imported in config_flow.py at the integration root:
-
-    from .config_flow_handler import TopologyConfigFlowHandler
+Topology has no options flow and no subentries (ADR "Editing Surface"): the
+panel is the primary editing surface.
 
 For more information:
 https://developers.home-assistant.io/docs/config_entries_config_flow_handler
@@ -26,9 +17,5 @@ https://developers.home-assistant.io/docs/config_entries_config_flow_handler
 from __future__ import annotations
 
 from .config_flow import TopologyConfigFlowHandler
-from .options_flow import TopologyOptionsFlow
 
-__all__ = [
-    "TopologyConfigFlowHandler",
-    "TopologyOptionsFlow",
-]
+__all__ = ["TopologyConfigFlowHandler"]

@@ -1,21 +1,17 @@
 """
-Data update coordinator package for topology.
+Coordinator package for topology.
 
-This package provides the coordinator infrastructure for managing periodic
-data updates and distributing them to all entities in the integration.
+The coordinator owns the in-memory topology snapshot and fans changes out to
+entities and consumers. Topology is registry-driven and calculated, so the
+coordinator does not poll (ADR "Coordinator Role").
 
 Package structure:
-- base.py: Main coordinator class (TopologyDataUpdateCoordinator)
-- data_processing.py: Data validation, transformation, and caching utilities
-- error_handling.py: Error recovery strategies and retry logic
-- listeners.py: Event listeners and entity callbacks
-
-For more information on coordinators:
-https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
+- base.py: TopologyCoordinator (snapshot fanout, bus event)
+- registry_watcher.py: area/floor registry event reactions (Phase 2)
 """
 
 from __future__ import annotations
 
-from .base import TopologyDataUpdateCoordinator
+from .base import TopologyCoordinator
 
-__all__ = ["TopologyDataUpdateCoordinator"]
+__all__ = ["TopologyCoordinator"]
