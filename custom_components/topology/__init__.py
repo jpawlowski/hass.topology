@@ -33,6 +33,7 @@ from .coordinator import TopologyCoordinator, TopologyRegistryWatcher
 from .data import TopologyRuntimeData
 from .service_actions import async_setup_services
 from .store import StoreCorruptError, StoreFutureVersionError, TopologyStore, TopologyStoreError
+from .websocket_api import async_register_websocket_api
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -59,6 +60,7 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     so they exist even before an entry is loaded (§4).
     """
     await async_setup_services(hass)
+    async_register_websocket_api(hass)
     return True
 
 
