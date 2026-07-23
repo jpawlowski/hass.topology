@@ -13,8 +13,9 @@ freeze an artifact for them.
 "Entity Model", "Editing Surface", "Registry-Driven State"), `PLAN.md`
 §9 (stability model), `AGENTS.md` (package rules, validation scripts).
 Design decisions made _in this document_ that are not pre-decided there
-are marked inline with **⚠️ derived here** + rationale, and listed again
-in §9 (Open questions) where a reviewer should confirm them.
+were initially marked **⚠️ derived here** and have since been reviewed
+and decided with the project owner — the binding outcomes are recorded
+in §9 (Resolved decisions, D1–D11).
 
 **Definition of done for Phase 2:** a developer implements Phase 2 from
 this document alone in ~5 working days without going back to the design
@@ -79,7 +80,7 @@ STORAGE_KEY = f"{DOMAIN}.storage"       # -> .storage/topology.storage
 STORAGE_VERSION = 1                     # major, mirrored as schema_version in data
 STORAGE_VERSION_MINOR = 1
 ORPHAN_UNDO_WINDOW = timedelta(hours=72)   # ADR "Registry-Driven State"
-UNANNOTATED_REPAIR_THRESHOLD = 3           # default per ADR; constant in v1
+DEFAULT_UNANNOTATED_REPAIR_THRESHOLD = 3   # default per ADR; user-configurable via config flow (§5)
 ```
 
 Persistence via `homeassistant.helpers.storage.Store[TopologyStoreData]`
@@ -95,16 +96,23 @@ Persistence via `homeassistant.helpers.storage.Store[TopologyStoreData]`
   "$id": "https://github.com/jpawlowski/hass.topology/schemas/store-v1.json",
   "title": "topology store v1",
   "type": "object",
-  "required": ["schema_version", "home_config", "areas", "edges"],
+  "required": ["schema_version", "home_config", "areas", "edges", "floors"],
   "additionalProperties": false,
   "properties": {
     "schema_version": { "const": 1 },
     "home_config": {
       "type": "object",
-      "required": ["occupancy_extent", "projection_toggles", "imports_done_at"],
+      "required": ["occupancy_extent", "projection_toggles", "imports_done_at", "unannotated_repair_threshold"],
       "additionalProperties": false,
       "properties": {
         "occupancy_extent": { "enum": ["whole_property", "unit_within_building"] },
+        "unannotated_repair_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 3,
+          "description": "Unannotated-area count at which the repair issue fires (ADR 'Registry-Driven State'; configurable per decision D10)"
+        },
         "projection_toggles": {
           "type": "object",
           "required": ["environment", "type", "trust"],
@@ -134,6 +142,11 @@ Persistence via `homeassistant.helpers.storage.Store[TopologyStoreData]`
       "type": "object",
       "description": "Keyed by edge_id (see §2.3 id rule)",
       "additionalProperties": { "$ref": "#/$defs/edge" }
+    },
+    "floors": {
+      "type": "object",
+      "description": "Keyed by HA floor_id; level completion where the registry has none (decision D1)",
+      "additionalProperties": { "$ref": "#/$defs/floor_override" }
     }
   },
   "$defs": {
@@ -150,6 +163,24 @@ Persistence via `homeassistant.helpers.storage.Store[TopologyStoreData]`
           "propertyNames": { "enum": ["N", "E", "S", "W"] },
           "additionalProperties": { "enum": ["outdoor", "neighbor", "earth"] }
         },
+        "exterior_connections": {
+          "type": "array",
+          "description": "Connections facing outside the modeled home (window, outside door) — attached to the one area (design §1; decision D2). inline_trust is legal only here.",
+          "items": { "$ref": "#/$defs/connection" }
+        },
+        "updated_at": { "type": "string", "format": "date-time" },
+        "orphaned_at": { "type": "string", "format": "date-time" }
+      }
+    },
+    "floor_override": {
+      "type": "object",
+      "required": ["updated_at"],
+      "additionalProperties": false,
+      "properties": {
+        "level_override": {
+          "type": ["integer", "null"],
+          "description": "Consulted ONLY while the registry floor's level is None (consume, then complement — never shadows a registry value)"
+        },
         "updated_at": { "type": "string", "format": "date-time" },
         "orphaned_at": { "type": "string", "format": "date-time" }
       }
@@ -160,10 +191,7 @@ Persistence via `homeassistant.helpers.storage.Store[TopologyStoreData]`
       "additionalProperties": false,
       "properties": {
         "area_a": { "type": "string" },
-        "area_b": {
-          "type": ["string", "null"],
-          "description": "null = exterior boundary edge: connections face outside the modeled home (window, outside door). See §2.3."
-        },
+        "area_b": { "type": "string" },
         "connections": {
           "type": "array",
           "minItems": 1,
@@ -197,7 +225,7 @@ Persistence via `homeassistant.helpers.storage.Store[TopologyStoreData]`
         },
         "inline_trust": {
           "enum": ["private", "shared", "public"],
-          "description": "Exterior-edge connections only: trust class beyond an unmodeled target (design §1: 'may carry an inline class'). Absent => public."
+          "description": "exterior_connections only: trust class beyond an unmodeled target (design §1: 'may carry an inline class'). Absent => public. Rejected on interior edges."
         }
       }
     }
@@ -213,25 +241,28 @@ Notes on shape decisions:
 - `areas.*.orphaned_at`: an area annotation whose `area_id` vanished
   from the registry is orphaned exactly like an edge (same 72 h window),
   so a registry restore keeps the annotation.
-- **Exterior connections** (`area_b: null`): the design (§1) requires
-  windows / outside doors "attached to the one area" with an optional
-  inline trust class, but the frozen root structure has only `areas` and
-  `edges`. **⚠️ derived here** — exterior openings are stored as a
-  single _boundary edge_ per area (`area_b: null`), all of the area's
-  exterior connections in that edge's `connections` list, per-connection
-  `side` + optional `inline_trust`. This keeps one collection for the
-  perimeter derivation and adds no third top-level structure. The
-  worked example (§2.5) depends on this (apartment door to an unmodeled
-  `shared` stairwell).
-- **Edge id rule** (deterministic, migration-safe): interior edge
+- **Exterior connections live on the area** (decision D2): the design
+  (§1) requires windows / outside doors "attached to the one area" with
+  an optional inline trust class. They are stored as
+  `areas.*.exterior_connections` — a plain connection list on the
+  annotation, per-connection `side` + optional `inline_trust`. Edges are
+  therefore always interior (`area_b` non-null); the perimeter
+  derivation iterates edges **plus** every area's exterior list. The
+  worked example (§2.5) shows the apartment door to an unmodeled
+  `shared` stairwell this way.
+- **Floors section** (decision D1): v1 scope includes floor-`level`
+  completion where the registry has none. `floors[floor_id]` carries a
+  `level_override` that is consulted _only_ while the registry `level`
+  is `None` — the registry stays authoritative the moment a user sets a
+  level there (consume, then complement, §1). Orphaning mirrors areas
+  (72 h window on floor deletion).
+- **Edge id rule** (deterministic, migration-safe, decision D3):
   `edge_id = f"{min(a, b)}::{max(a, b)}"` (lexicographic; HA area ids
-  never contain `:`), exterior boundary edge `edge_id = f"{area_id}::*"`.
-  One edge per unordered area pair; one boundary edge per area — an
-  edge is a _bundle_ of connections, so a second stair between the same
-  two areas is a second connection, never a second edge. `upsert_edge`
-  is therefore idempotent on the pair. **⚠️ derived here** — §10 froze
-  that an edge id exists but not its form; deterministic ids remove a
-  whole class of duplicate-edge bugs and need no uuid bookkeeping.
+  never contain `:`). One edge per unordered area pair — an edge is a
+  _bundle_ of connections, so a second stair between the same two areas
+  is a second connection, never a second edge. `upsert_edge` is
+  therefore idempotent on the pair, and deterministic ids remove a whole
+  class of duplicate-edge bugs with no uuid bookkeeping.
 
 ### 2.3 Migration hook
 
@@ -277,7 +308,7 @@ Frozen policy (PLAN-topology.md §10 "Enum-versioning policy"):
    the newer annotation losslessly.
 4. **Consumers** (Residents, Alarmo templates) validate against the
    documented v1 catalog and treat anything else as `null`; the health
-   signal (§4.8) carries `unknown_enum_values` so consumers can degrade
+   signal (§4.11) carries `unknown_enum_values` so consumers can degrade
    without re-deriving the check (§3.6 obligation).
 5. `type` is exempt from (1): it is an **open catalog** (§1) — any
    string is a legal value, never "unknown". Only `environment`,
@@ -286,9 +317,10 @@ Frozen policy (PLAN-topology.md §10 "Enum-versioning policy"):
 
 ### 2.5 Example payload — 3-room flat
 
-Flat with hallway, living room, kitchen; hallway holds the apartment
-door into an unmodeled `shared` stairwell; living room and kitchen each
-have an exterior window; interior doors hallway↔living and
+Flat with hallway, living room, kitchen on one registry floor (level
+unset there, completed via `level_override`); hallway holds the
+apartment door into an unmodeled `shared` stairwell; living room and
+kitchen each have an exterior window; interior doors hallway↔living and
 hallway↔kitchen, open passage living↔kitchen.
 
 ```json
@@ -297,7 +329,8 @@ hallway↔kitchen, open passage living↔kitchen.
   "home_config": {
     "occupancy_extent": "unit_within_building",
     "projection_toggles": { "environment": false, "type": false, "trust": false },
-    "imports_done_at": { "aliases": null, "labels": null }
+    "imports_done_at": { "aliases": null, "labels": null },
+    "unannotated_repair_threshold": 3
   },
   "areas": {
     "flur": {
@@ -305,6 +338,16 @@ hallway↔kitchen, open passage living↔kitchen.
       "environment": "indoor",
       "trust": "private",
       "beyond": { "N": "neighbor" },
+      "exterior_connections": [
+        {
+          "passage": "level",
+          "barrier": "door",
+          "side": "N",
+          "sensor_entity_id": "binary_sensor.wohnungstuer_contact",
+          "preset_name": "outside_door",
+          "inline_trust": "shared"
+        }
+      ],
       "updated_at": "2026-07-23T10:00:00+00:00"
     },
     "wohnzimmer": {
@@ -312,6 +355,16 @@ hallway↔kitchen, open passage living↔kitchen.
       "environment": "indoor",
       "trust": "private",
       "beyond": { "S": "outdoor", "W": "outdoor" },
+      "exterior_connections": [
+        {
+          "passage": "none",
+          "barrier": "door",
+          "side": "S",
+          "glazed": true,
+          "sensor_entity_id": "binary_sensor.wohnzimmer_fenster_contact",
+          "preset_name": "window"
+        }
+      ],
       "updated_at": "2026-07-23T10:01:00+00:00"
     },
     "kueche": {
@@ -319,6 +372,15 @@ hallway↔kitchen, open passage living↔kitchen.
       "environment": "indoor",
       "trust": "private",
       "beyond": { "S": "outdoor" },
+      "exterior_connections": [
+        {
+          "passage": "none",
+          "barrier": "door",
+          "side": "S",
+          "glazed": true,
+          "preset_name": "window"
+        }
+      ],
       "updated_at": "2026-07-23T10:02:00+00:00"
     }
   },
@@ -340,50 +402,12 @@ hallway↔kitchen, open passage living↔kitchen.
       "area_b": "wohnzimmer",
       "connections": [{ "passage": "level", "barrier": "open", "preset_name": "open_passage" }],
       "created_at": "2026-07-23T10:06:00+00:00"
-    },
-    "flur::*": {
-      "area_a": "flur",
-      "area_b": null,
-      "connections": [
-        {
-          "passage": "level",
-          "barrier": "door",
-          "side": "N",
-          "sensor_entity_id": "binary_sensor.wohnungstuer_contact",
-          "preset_name": "outside_door",
-          "inline_trust": "shared"
-        }
-      ],
-      "created_at": "2026-07-23T10:07:00+00:00"
-    },
-    "wohnzimmer::*": {
-      "area_a": "wohnzimmer",
-      "area_b": null,
-      "connections": [
-        {
-          "passage": "none",
-          "barrier": "door",
-          "side": "S",
-          "glazed": true,
-          "sensor_entity_id": "binary_sensor.wohnzimmer_fenster_contact",
-          "preset_name": "window"
-        }
-      ],
-      "created_at": "2026-07-23T10:08:00+00:00"
-    },
-    "kueche::*": {
-      "area_a": "kueche",
-      "area_b": null,
-      "connections": [
-        {
-          "passage": "none",
-          "barrier": "door",
-          "side": "S",
-          "glazed": true,
-          "preset_name": "window"
-        }
-      ],
-      "created_at": "2026-07-23T10:09:00+00:00"
+    }
+  },
+  "floors": {
+    "etage_3": {
+      "level_override": 3,
+      "updated_at": "2026-07-23T10:03:00+00:00"
     }
   }
 }
@@ -405,22 +429,26 @@ frozen wire/store strings. Order shown is definition order.
 
 ### 3.1 `type` — area type (open catalog with defaults, §1)
 
-Open catalog: any string is legal; the eleven values below are the
+Open catalog: any string is legal; the thirteen values below are the
 shipped defaults with UI presence. Not a closed enum (§2.4 rule 5).
+`balcony` and `terrace` extend the design plan's §1 list (decision D9 —
+PLAN-topology.md §1 is amended in the same commit).
 
-| Value      | Meaning                                                     |
-| ---------- | ----------------------------------------------------------- |
-| `bedroom`  | A room whose primary use is sleeping.                       |
-| `living`   | General shared living space (lounge, family room).          |
-| `kitchen`  | Food preparation space.                                     |
-| `dining`   | Eating space (may seed `dining_place` in Residents).        |
-| `bathroom` | Bath / shower / WC space.                                   |
-| `hallway`  | Circulation space connecting other areas.                   |
-| `office`   | Work / study space.                                         |
-| `utility`  | Laundry, boiler, technical room.                            |
-| `storage`  | Pantry, closet room, attic used for storage.                |
-| `garage`   | Vehicle storage, possibly multi-floor.                      |
-| `outdoor`  | An outside area (garden, yard, terrace) modeled as an area. |
+| Value      | Meaning                                              |
+| ---------- | ---------------------------------------------------- |
+| `bedroom`  | A room whose primary use is sleeping.                |
+| `living`   | General shared living space (lounge, family room).   |
+| `kitchen`  | Food preparation space.                              |
+| `dining`   | Eating space (may seed `dining_place` in Residents). |
+| `bathroom` | Bath / shower / WC space.                            |
+| `hallway`  | Circulation space connecting other areas.            |
+| `office`   | Work / study space.                                  |
+| `utility`  | Laundry, boiler, technical room.                     |
+| `storage`  | Pantry, closet room, attic used for storage.         |
+| `garage`   | Vehicle storage, possibly multi-floor.               |
+| `balcony`  | Attached open platform above ground level.           |
+| `terrace`  | Ground-level open sitting area adjoining the home.   |
+| `outdoor`  | An outside area (garden, yard) modeled as an area.   |
 
 **Type-cascade defaults** (picking a type pre-fills the other two fields,
 both stay editable; §1). Only the three cascades in bold are stated in
@@ -435,6 +463,8 @@ the design plan; the rest are **⚠️ derived here** by the same logic
 | **`outdoor`**                                                             | outdoor             | — (unset; §1: trust stays individual) |
 | `living`, `kitchen`, `dining`, `bathroom`, `office`, `utility`, `storage` | indoor              | private                               |
 | `garage`                                                                  | indoor              | private                               |
+| `balcony`                                                                 | semi_outdoor        | — (unset; trust stays individual)     |
+| `terrace`                                                                 | outdoor             | — (unset; trust stays individual)     |
 
 ### 3.2 `environment`
 
@@ -544,14 +574,15 @@ No public/unauthenticated command exists.
 the WS layer itself), `unauthorized` (admin gate), `unknown_error`; plus
 these domain codes, frozen here:
 
-| Code                 | Raised when                                                                                                                                                                         |
-| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `not_loaded`         | No topology config entry is set up (store unavailable).                                                                                                                             |
-| `area_not_found`     | An `area_id` payload value is not in the HA area registry.                                                                                                                          |
-| `edge_not_found`     | `edge_id` not present in the store.                                                                                                                                                 |
-| `invalid_enum`       | A closed-enum field value is outside the v1 catalog (§3).                                                                                                                           |
-| `invalid_connection` | Connection-level semantic violation: `sensor_entity_id` with `barrier != door`, `sensor_entity_id` not a `binary_sensor.*`, `inline_trust` on an interior edge, `area_a == area_b`. |
-| `store_error`        | Persisting the mutation failed (I/O).                                                                                                                                               |
+| Code                 | Raised when                                                                                                                                                                                    |
+| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `not_loaded`         | No topology config entry is set up (store unavailable).                                                                                                                                        |
+| `area_not_found`     | An `area_id` payload value is not in the HA area registry.                                                                                                                                     |
+| `edge_not_found`     | `edge_id` not present in the store.                                                                                                                                                            |
+| `floor_not_found`    | A `floor_id` payload value is not in the HA floor registry.                                                                                                                                    |
+| `invalid_enum`       | A closed-enum field value is outside the v1 catalog (§3).                                                                                                                                      |
+| `invalid_connection` | Connection-level semantic violation: `sensor_entity_id` with `barrier != door`, `sensor_entity_id` not a `binary_sensor.*`, `inline_trust` on an interior edge connection, `area_a == area_b`. |
+| `store_error`        | Persisting the mutation failed (I/O).                                                                                                                                                          |
 
 Shared payload fragments (JSON Schema):
 
@@ -567,6 +598,7 @@ Shared payload fragments (JSON Schema):
         "environment": { "enum": ["indoor", "outdoor", "semi_outdoor", null] },
         "trust": { "enum": ["private", "shared", "public", null] },
         "beyond": { "type": "object" },
+        "exterior_connections": { "type": "array", "items": { "$ref": "#/$defs/connection_in" } },
         "orphaned_at": { "type": ["string", "null"] },
         "updated_at": { "type": "string" }
       }
@@ -576,10 +608,10 @@ Shared payload fragments (JSON Schema):
       "properties": {
         "edge_id": { "type": "string" },
         "area_a": { "type": "string" },
-        "area_b": { "type": ["string", "null"] },
+        "area_b": { "type": "string" },
         "axis": {
           "enum": ["horizontal", "vertical", "unknown"],
-          "description": "Derived from the two areas' floor levels; never stored (§1). unknown when a floor level is unset or the edge is exterior."
+          "description": "Derived from the two areas' effective floor levels (registry level, else level_override); never stored (§1). unknown when a level is unresolvable."
         },
         "is_perimeter": {
           "type": "boolean",
@@ -608,9 +640,10 @@ the frontend's own registry subscription, not from topology.
 
 ```json
 {
-  "home_config": { "occupancy_extent": "...", "projection_toggles": {...}, "imports_done_at": {...} },
+  "home_config": { "occupancy_extent": "...", "projection_toggles": {...}, "imports_done_at": {...}, "unannotated_repair_threshold": 3 },
   "areas": [ { "$ref": "#/$defs/area_out" } ],
   "edges": [ { "$ref": "#/$defs/edge_out" } ],
+  "floors": [ { "floor_id": "...", "registry_level": null, "level_override": 3, "effective_level": 3 } ],
   "presets": [ { "preset_name": "...", "passage": "...", "barrier": "...", "glazed_default": false, "sensor_allowed": true } ]
 }
 ```
@@ -652,7 +685,7 @@ field. `beyond` is **not** editable here — `set_beyond` owns it.
 {
   "type": "topology/upsert_edge",
   "area_a": { "type": "string" },
-  "area_b": { "type": ["string", "null"] },
+  "area_b": { "type": "string" },
   "connections": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/connection_in" } }
 }
 ```
@@ -703,7 +736,54 @@ provides one for edges whose area came back (registry restore).
 - Response: the updated `area_out`.
 - Errors: `not_loaded`, `area_not_found`, `invalid_enum`, `store_error`.
 
-### 4.7 `topology/update_home_config` — write, `@require_admin`
+### 4.7 `topology/set_exterior_connections` — write, `@require_admin`
+
+Replaces an area's exterior-connection list atomically (decision D2 —
+exterior openings live on the area, §2.2). An empty list clears it.
+
+- Payload:
+
+```json
+{
+  "type": "topology/set_exterior_connections",
+  "area_id": { "type": "string" },
+  "connections": { "type": "array", "items": { "$ref": "#/$defs/connection_in" } }
+}
+```
+
+Validation: `inline_trust` is legal here (and only here); the UI-side
+constraint that an exterior opening sits on a `beyond: outdoor` side is
+**not** enforced by this command — violations surface via the Phase-4
+consistency check `exterior_on_non_outdoor_side` instead (a hard reject
+would block users who annotate connections before `beyond` sides).
+
+- Response: the updated `area_out`.
+- Errors: `not_loaded`, `area_not_found`, `invalid_enum`,
+  `invalid_connection`, `store_error`.
+
+### 4.8 `topology/set_floor_level` — write, `@require_admin`
+
+Floor-level completion (decision D1): stores a `level_override` for a
+registry floor whose `level` is `None`. `null` clears the override.
+
+- Payload:
+
+```json
+{
+  "type": "topology/set_floor_level",
+  "floor_id": { "type": "string" },
+  "level": { "type": ["integer", "null"] }
+}
+```
+
+Setting an override for a floor whose registry `level` is already set is
+accepted but inert (registry stays authoritative, §2.2) — the response
+carries `effective_level` so the panel can show which value wins.
+
+- Response: `{ "floor_id": "...", "registry_level": int|null, "level_override": int|null, "effective_level": int|null }`
+- Errors: `not_loaded`, `floor_not_found`, `store_error`.
+
+### 4.9 `topology/update_home_config` — write, `@require_admin`
 
 **⚠️ derived here** — `occupancy_extent` and the projection toggles are
 config-flow fields, but the panel (primary editing surface, ADR) must
@@ -711,11 +791,11 @@ not force users into the reconfigure flow for the one home-level enum
 shown on the map. The command mirrors the reconfigure flow exactly; both
 write the same store fields and reload nothing.
 
-- Payload: `{ "type": "topology/update_home_config", "occupancy_extent"?: enum, "projection_toggles"?: {...} }`
+- Payload: `{ "type": "topology/update_home_config", "occupancy_extent"?: enum, "projection_toggles"?: {...}, "unannotated_repair_threshold"?: int }`
 - Response: the updated `home_config` object.
 - Errors: `not_loaded`, `invalid_enum`, `store_error`.
 
-### 4.8 `topology/read_hook` — read, authenticated (consumer contract)
+### 4.10 `topology/read_hook` — read, authenticated (consumer contract)
 
 The single command Residents / Alarmo / blueprints consume (§2, §3.5).
 Versioned envelope; `api_version` bumps only with a deprecation window.
@@ -728,15 +808,15 @@ Versioned envelope; `api_version` bumps only with a deprecation window.
   "api_version": 1,
   "home": {
     "occupancy_extent": "whole_property | unit_within_building",
-    "floors": [{ "floor_id": "...", "level": 0 }]
+    "floors": [{ "floor_id": "...", "registry_level": null, "level_override": 3, "effective_level": 3 }]
   },
   "areas": [{ "$ref": "#/$defs/area_out" }],
   "edges": [{ "$ref": "#/$defs/edge_out" }],
   "perimeter": [
     {
-      "edge_id": "...",
-      "area_a": "...",
-      "area_b": null,
+      "source": "edge | exterior",
+      "edge_id": "flur::wohnzimmer | null",
+      "area_id": "flur (owning area when source == exterior, else area_a)",
       "connection_index": 0,
       "sensor_entity_id": "binary_sensor.x | null"
     }
@@ -747,18 +827,22 @@ Versioned envelope; `api_version` bumps only with a deprecation window.
 
 Notes:
 
-- `home.floors` relays the floor registry's `floor_id` + `level`
-  (consume, never rebuild — no topology copy is stored). Consumers get
+- `home.floors` relays the floor registry's `floor_id` + `level` and
+  merges the store's `level_override` into `effective_level`
+  (registry value wins when set, §2.2 decision D1). Consumers get
   vertical ordering without a second registry fetch.
-- `perimeter` is the derived perimeter-connection list (trust delta or
-  `perimeter_override`, §1) — the Alarmo drop-in (§9 of the design
-  plan). Orphaned edges are excluded from `perimeter` but present in
-  `edges` (flagged via `orphaned_at`) so consumers can distinguish.
+- `perimeter` is the derived perimeter-connection list — the Alarmo
+  drop-in (§9 of the design plan). Two sources feed it: interior edges
+  whose sides differ in trust (or carry `perimeter_override`), and
+  every area's `exterior_connections` (trust vs. `inline_trust`,
+  absent ⇒ `public`, §1). Orphaned entries are excluded from
+  `perimeter` but present in `edges`/`areas` (flagged via
+  `orphaned_at`) so consumers can distinguish.
 - Areas with no annotation appear with all-null fields — `null` means
   "unknown", never a default (§1).
 - Errors: `not_loaded`.
 
-### 4.9 `topology/health` — read, authenticated
+### 4.11 `topology/health` — read, authenticated
 
 The cheap consistency/health signal (§3.6 obligation) without the full
 graph payload. Response = the `health` object alone.
@@ -777,6 +861,7 @@ graph payload. Response = the `health` object alone.
         "unannotated_areas",
         "orphaned_edges",
         "orphaned_areas",
+        "orphaned_floors",
         "unknown_enum_values",
         "isolated_areas",
         "indoor_areas_without_floor",
@@ -790,6 +875,7 @@ graph payload. Response = the `health` object alone.
         "unannotated_areas": { "type": "array", "items": { "type": "string" } },
         "orphaned_edges": { "type": "array", "items": { "type": "string" } },
         "orphaned_areas": { "type": "array", "items": { "type": "string" } },
+        "orphaned_floors": { "type": "array", "items": { "type": "string" } },
         "unknown_enum_values": {
           "type": "array",
           "items": {
@@ -814,14 +900,15 @@ graph payload. Response = the `health` object alone.
 
 `status` is `warning` iff any list is non-empty. **Phase-2 emission
 scope:** `area_count`, `annotated_count`, `unannotated_areas`,
-`orphaned_edges`, `orphaned_areas`, `unknown_enum_values` are computed
+`orphaned_edges`, `orphaned_areas`, `orphaned_floors`,
+`unknown_enum_values` are computed
 in Phase 2; the four graph-consistency lists (`isolated_areas`,
 `indoor_areas_without_floor`, `contradictory_bearings`,
 `exterior_on_non_outdoor_side`) are **present but empty** until Phase 4
 implements the checks (§7 of the design plan). The shape is frozen now
 so consumers never see a field appear later.
 
-### 4.10 `topology/subscribe_updates` — read, authenticated, subscription
+### 4.12 `topology/subscribe_updates` — read, authenticated, subscription
 
 - Payload: `{ "type": "topology/subscribe_updates" }`
 - On success: `send_result(msg_id)`; an unsubscribe callback is stored
@@ -830,21 +917,21 @@ so consumers never see a field appear later.
 
 ```json
 {
-  "change": "area | edge | beyond | home_config | orphan | purge",
-  "ids": ["<area_id or edge_id>", "..."]
+  "change": "area | edge | exterior | beyond | floor | home_config | orphan | purge",
+  "ids": ["<area_id, edge_id, or floor_id>", "..."]
 }
 ```
 
 Consumers re-fetch via `read_hook` on event — events carry ids, never
 payload deltas (keeps the contract small; snapshot reads are cheap).
 
-### 4.11 Bus event (in-process consumers + automations)
+### 4.13 Bus event (in-process consumers + automations)
 
 In addition to the WS subscription, the coordinator fires a bus event on
 every store mutation and registry-driven change:
 
 - **Event name:** `topology_updated` (constant `EVENT_TOPOLOGY_UPDATED`)
-- **Payload:** identical to the §4.10 event object.
+- **Payload:** identical to the §4.12 event object.
 
 This is what Residents listens to in-process (no WS round-trip needed)
 and what the §10 freeze point calls "change-notification event names".
@@ -902,12 +989,14 @@ user:
   project_trust: # BooleanSelector
     required: false
     default: false
+  unannotated_repair_threshold: # NumberSelector, mode box, min 1, max 100, step 1
+    required: false
+    default: 3
 ```
 
-**⚠️ derived here** — the design says "label-projection toggle"
-(singular) but the frozen store shape has three `projection_toggles`;
-the flow exposes all three so flow and store stay isomorphic. Collapse
-to one toggle = open question §9.
+The three projection toggles mirror the store's `projection_toggles`
+(decision D4 — flow and store stay isomorphic); the threshold field
+makes the ADR's "default 3, configurable" real (decision D10).
 
 **test-before-configure** (runs on submit, before `async_create_entry`):
 
@@ -941,6 +1030,8 @@ config.step.user.data_description.import_labels
 config.step.user.data.project_environment
 config.step.user.data.project_type
 config.step.user.data.project_trust
+config.step.user.data.unannotated_repair_threshold
+config.step.user.data_description.unannotated_repair_threshold
 config.step.reconfigure.title
 config.step.reconfigure.description
 config.step.reconfigure.data.*            (same field keys as user)
@@ -1037,7 +1128,8 @@ class OccupancyExtent(StrEnum):
 
 AREA_TYPE_CATALOG: tuple[str, ...] = (
     "bedroom", "living", "kitchen", "dining", "bathroom", "hallway",
-    "office", "utility", "storage", "garage", "outdoor",
+    "office", "utility", "storage", "garage", "balcony", "terrace",
+    "outdoor",
 )
 # type-cascade defaults, §3.1  (None = no default)
 TYPE_CASCADE: dict[str, tuple[Environment | None, Trust | None]]
@@ -1079,7 +1171,7 @@ class ConnectionDict(TypedDict):
 
 class EdgeDict(TypedDict):
     area_a: str
-    area_b: str | None
+    area_b: str
     connections: list[ConnectionDict]
     created_at: str
     orphaned_at: NotRequired[str]
@@ -1089,6 +1181,12 @@ class AreaAnnotationDict(TypedDict):
     environment: NotRequired[str | None]
     trust: NotRequired[str | None]
     beyond: NotRequired[dict[str, str]]
+    exterior_connections: NotRequired[list[ConnectionDict]]
+    updated_at: str
+    orphaned_at: NotRequired[str]
+
+class FloorOverrideDict(TypedDict):
+    level_override: int | None
     updated_at: str
     orphaned_at: NotRequired[str]
 
@@ -1105,12 +1203,14 @@ class HomeConfigDict(TypedDict):
     occupancy_extent: str
     projection_toggles: ProjectionTogglesDict
     imports_done_at: ImportsDoneAtDict
+    unannotated_repair_threshold: int
 
 class TopologyStoreData(TypedDict):
     schema_version: int
     home_config: HomeConfigDict
     areas: dict[str, AreaAnnotationDict]
     edges: dict[str, EdgeDict]
+    floors: dict[str, FloorOverrideDict]
 
 
 # --- frozen domain dataclasses (in-memory model) ---------------------
@@ -1124,19 +1224,16 @@ class Connection:
     glazed: bool = False
     preset_name: str | None = None
     perimeter_override: bool = False
-    inline_trust: Trust | None = None      # exterior edges only
+    inline_trust: Trust | None = None      # exterior_connections only
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class Edge:
     edge_id: str
     area_a: str
-    area_b: str | None                      # None = exterior boundary edge
+    area_b: str
     connections: tuple[Connection, ...]
     created_at: str                         # ISO 8601 UTC
     orphaned_at: str | None = None
-
-    @property
-    def is_exterior(self) -> bool: ...
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class AreaAnnotation:
@@ -1145,6 +1242,14 @@ class AreaAnnotation:
     environment: Environment | None = None
     trust: Trust | None = None
     beyond: tuple[tuple[CardinalSide, BeyondClass], ...] = ()
+    exterior_connections: tuple[Connection, ...] = ()
+    updated_at: str = ""
+    orphaned_at: str | None = None
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class FloorOverride:
+    floor_id: str
+    level_override: int | None = None       # consulted only while registry level is None
     updated_at: str = ""
     orphaned_at: str | None = None
 
@@ -1156,6 +1261,7 @@ class HomeConfig:
     project_trust: bool = False
     imports_done_at_aliases: str | None = None
     imports_done_at_labels: str | None = None
+    unannotated_repair_threshold: int = 3   # DEFAULT_UNANNOTATED_REPAIR_THRESHOLD
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class UnknownEnumValue:
@@ -1170,6 +1276,7 @@ class TopologySnapshot:
     home_config: HomeConfig
     areas: tuple[AreaAnnotation, ...]
     edges: tuple[Edge, ...]
+    floors: tuple[FloorOverride, ...]
     unknown_enum_values: tuple[UnknownEnumValue, ...]
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -1193,8 +1300,10 @@ def area_annotation_from_dict(area_id: str, raw: AreaAnnotationDict) -> tuple[Ar
 def area_annotation_to_dict(annotation: AreaAnnotation, raw: AreaAnnotationDict | None = None) -> AreaAnnotationDict: ...
 def home_config_from_dict(raw: HomeConfigDict) -> tuple[HomeConfig, list[UnknownEnumValue]]: ...
 def home_config_to_dict(config: HomeConfig, raw: HomeConfigDict | None = None) -> HomeConfigDict: ...
+def floor_override_from_dict(floor_id: str, raw: FloorOverrideDict) -> FloorOverride: ...
+def floor_override_to_dict(override: FloorOverride) -> FloorOverrideDict: ...
 def snapshot_from_store(data: TopologyStoreData) -> TopologySnapshot: ...
-def edge_id_for(area_a: str, area_b: str | None) -> str: ...   # §2.2 id rule
+def edge_id_for(area_a: str, area_b: str) -> str: ...   # §2.2 id rule
 ```
 
 Supporting modules created in Phase 2 (inside frozen packages):
@@ -1213,8 +1322,9 @@ Supporting modules created in Phase 2 (inside frozen packages):
 - `coordinator/registry_watcher.py`: subscribes to
   `EVENT_AREA_REGISTRY_UPDATED` / `EVENT_FLOOR_REGISTRY_UPDATED`
   (constants + payload shapes verified, Appendix A.2/A.3); implements
-  the ADR reactions (orphan on remove, fanout on update/create) and the
-  startup + daily orphan purge (`async_track_time_interval`).
+  the ADR reactions (orphan on remove — areas, edges, and floor
+  overrides alike; fanout on update/create) and the startup + daily
+  orphan purge (`async_track_time_interval`).
 - `websocket_api.py` (integration root): command handlers §4.
   **⚠️ derived here** — same root-module reasoning as `store.py`; the
   filename mirrors Core convention for WS command modules.
@@ -1260,14 +1370,15 @@ Shared fixtures (in `tests/conftest.py`): `hass` (HA test instance),
 
 ### Config flow — user
 
-| ID                                     | Purpose                                                                              | Fixtures                |
-| -------------------------------------- | ------------------------------------------------------------------------------------ | ----------------------- |
-| `test_flow_user_success`               | Defaults accepted → entry created, `unique_id == "topology"`, data == schema fields. | hass                    |
-| `test_flow_user_full_input`            | All fields set (unit_within_building, imports, toggles) land in `entry.data`.        | hass                    |
-| `test_flow_single_instance_abort`      | Second flow aborts `single_instance_allowed` (manifest flag).                        | hass, mock_config_entry |
-| `test_flow_store_corrupt_shows_error`  | Store load raising → form error `store_corrupt`, flow recoverable.                   | hass                    |
-| `test_flow_store_future_version_abort` | Version-2 store → abort `store_future_version`.                                      | hass                    |
-| `test_flow_area_registry_error`        | Registry access raising → form error `area_registry_unavailable`.                    | hass                    |
+| ID                                       | Purpose                                                                                        | Fixtures                |
+| ---------------------------------------- | ---------------------------------------------------------------------------------------------- | ----------------------- |
+| `test_flow_user_success`                 | Defaults accepted → entry created, `unique_id == "topology"`, data == schema fields.           | hass                    |
+| `test_flow_user_full_input`              | All fields set (unit_within_building, imports, toggles) land in `entry.data`.                  | hass                    |
+| `test_flow_single_instance_abort`        | Second flow aborts `single_instance_allowed` (manifest flag).                                  | hass, mock_config_entry |
+| `test_flow_store_corrupt_shows_error`    | Store load raising → form error `store_corrupt`, flow recoverable.                             | hass                    |
+| `test_flow_store_future_version_abort`   | Version-2 store → abort `store_future_version`.                                                | hass                    |
+| `test_flow_area_registry_error`          | Registry access raising → form error `area_registry_unavailable`.                              | hass                    |
+| `test_flow_threshold_default_and_custom` | Threshold defaults to 3; a custom value (e.g. 10) lands in `entry.data` + store `home_config`. | hass                    |
 
 ### Config flow — reconfigure
 
@@ -1287,38 +1398,41 @@ Shared fixtures (in `tests/conftest.py`): `hass` (HA test instance),
 
 ### WebSocket commands
 
-| ID                                                   | Purpose                                                                                           | Fixtures                                               |
-| ---------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
-| `test_ws_not_loaded`                                 | Any command before setup → error `not_loaded`.                                                    | hass, hass_ws_client                                   |
-| `test_ws_list_annotations_snapshot`                  | Returns all registry areas (annotated + null-filled), edges, presets, home_config.                | setup_integration, hass_ws_client                      |
-| `test_ws_update_area_success`                        | Annotation persisted, response echoes `area_out`, `topology_updated` fired, subscribers notified. | setup_integration, hass_ws_client                      |
-| `test_ws_update_area_partial_and_clear`              | Omitted keys untouched; explicit `null` clears.                                                   | setup_integration, hass_ws_client                      |
-| `test_ws_update_area_unknown_area`                   | Unknown `area_id` → `area_not_found`.                                                             | setup_integration, hass_ws_client                      |
-| `test_ws_update_area_invalid_enum`                   | `environment: "wet"` → `invalid_enum` (vol passes string, handler rejects).                       | setup_integration, hass_ws_client                      |
-| `test_ws_write_denied_non_admin`                     | Every write command → `unauthorized` for non-admin user.                                          | setup_integration, hass_ws_client, hass_read_only_user |
-| `test_ws_payload_validation`                         | Missing required field → `invalid_format` from the WS layer.                                      | setup_integration, hass_ws_client                      |
-| `test_ws_upsert_edge_create_and_replace`             | First call creates (deterministic edge_id), second call replaces connection list.                 | setup_integration, hass_ws_client                      |
-| `test_ws_upsert_edge_normalizes_pair`                | (b, a) and (a, b) hit the same edge_id.                                                           | setup_integration, hass_ws_client                      |
-| `test_ws_upsert_edge_same_area_rejected`             | `area_a == area_b` → `invalid_connection`.                                                        | setup_integration, hass_ws_client                      |
-| `test_ws_upsert_edge_sensor_rules`                   | Sensor on `barrier != door` or non-binary_sensor id → `invalid_connection`.                       | setup_integration, hass_ws_client                      |
-| `test_ws_upsert_edge_inline_trust_interior_rejected` | `inline_trust` on interior edge → `invalid_connection`.                                           | setup_integration, hass_ws_client                      |
-| `test_ws_delete_edge`                                | Deletes, `{deleted: true}`, event fired; unknown id → `edge_not_found`.                           | setup_integration, hass_ws_client                      |
-| `test_ws_set_beyond_success_and_clear`               | Side set, then cleared with `null`; persisted.                                                    | setup_integration, hass_ws_client                      |
-| `test_ws_read_hook_envelope`                         | `api_version == 1`; home.floors from registry; null-discipline for unannotated areas.             | setup_integration, hass_ws_client, floor_registry      |
-| `test_ws_read_hook_perimeter_derivation`             | §2.5 payload yields apartment door + both windows as perimeter, interior doors not.               | setup_integration, store_payload_full, hass_ws_client  |
-| `test_ws_read_hook_axis_derivation`                  | Edge across two floors → `vertical`; same floor → `horizontal`; unset level → `unknown`.          | setup_integration, floor_registry, hass_ws_client      |
-| `test_ws_health_minimal`                             | Health-only response matches frozen shape incl. empty Phase-4 lists.                              | setup_integration, hass_ws_client                      |
-| `test_ws_subscribe_updates`                          | Subscription receives event on mutation; unsubscribing stops delivery.                            | setup_integration, hass_ws_client                      |
+| ID                                                   | Purpose                                                                                                                          | Fixtures                                               |
+| ---------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------ |
+| `test_ws_not_loaded`                                 | Any command before setup → error `not_loaded`.                                                                                   | hass, hass_ws_client                                   |
+| `test_ws_list_annotations_snapshot`                  | Returns all registry areas (annotated + null-filled), edges, presets, home_config.                                               | setup_integration, hass_ws_client                      |
+| `test_ws_update_area_success`                        | Annotation persisted, response echoes `area_out`, `topology_updated` fired, subscribers notified.                                | setup_integration, hass_ws_client                      |
+| `test_ws_update_area_partial_and_clear`              | Omitted keys untouched; explicit `null` clears.                                                                                  | setup_integration, hass_ws_client                      |
+| `test_ws_update_area_unknown_area`                   | Unknown `area_id` → `area_not_found`.                                                                                            | setup_integration, hass_ws_client                      |
+| `test_ws_update_area_invalid_enum`                   | `environment: "wet"` → `invalid_enum` (vol passes string, handler rejects).                                                      | setup_integration, hass_ws_client                      |
+| `test_ws_write_denied_non_admin`                     | Every write command → `unauthorized` for non-admin user.                                                                         | setup_integration, hass_ws_client, hass_read_only_user |
+| `test_ws_payload_validation`                         | Missing required field → `invalid_format` from the WS layer.                                                                     | setup_integration, hass_ws_client                      |
+| `test_ws_upsert_edge_create_and_replace`             | First call creates (deterministic edge_id), second call replaces connection list.                                                | setup_integration, hass_ws_client                      |
+| `test_ws_upsert_edge_normalizes_pair`                | (b, a) and (a, b) hit the same edge_id.                                                                                          | setup_integration, hass_ws_client                      |
+| `test_ws_upsert_edge_same_area_rejected`             | `area_a == area_b` → `invalid_connection`.                                                                                       | setup_integration, hass_ws_client                      |
+| `test_ws_upsert_edge_sensor_rules`                   | Sensor on `barrier != door` or non-binary_sensor id → `invalid_connection`.                                                      | setup_integration, hass_ws_client                      |
+| `test_ws_upsert_edge_inline_trust_interior_rejected` | `inline_trust` on interior edge → `invalid_connection`.                                                                          | setup_integration, hass_ws_client                      |
+| `test_ws_delete_edge`                                | Deletes, `{deleted: true}`, event fired; unknown id → `edge_not_found`.                                                          | setup_integration, hass_ws_client                      |
+| `test_ws_set_beyond_success_and_clear`               | Side set, then cleared with `null`; persisted.                                                                                   | setup_integration, hass_ws_client                      |
+| `test_ws_set_exterior_connections`                   | Replaces the area's exterior list atomically; empty list clears; `inline_trust` accepted here.                                   | setup_integration, hass_ws_client                      |
+| `test_ws_set_floor_level`                            | Override stored + `effective_level` correct; inert when registry level set; unknown id → `floor_not_found`.                      | setup_integration, floor_registry, hass_ws_client      |
+| `test_ws_read_hook_envelope`                         | `api_version == 1`; home.floors merges registry level + override into `effective_level`; null-discipline for unannotated areas.  | setup_integration, hass_ws_client, floor_registry      |
+| `test_ws_read_hook_perimeter_derivation`             | §2.5 payload yields apartment door + both windows (exterior, `inline_trust`/default-public) as perimeter, interior doors not.    | setup_integration, store_payload_full, hass_ws_client  |
+| `test_ws_read_hook_axis_derivation`                  | Edge across two floors → `vertical`; same floor → `horizontal`; unresolvable level (no registry value, no override) → `unknown`. | setup_integration, floor_registry, hass_ws_client      |
+| `test_ws_health_minimal`                             | Health-only response matches frozen shape incl. empty Phase-4 lists.                                                             | setup_integration, hass_ws_client                      |
+| `test_ws_subscribe_updates`                          | Subscription receives event on mutation; unsubscribing stops delivery.                                                           | setup_integration, hass_ws_client                      |
 
 ### Registry events
 
-| ID                                   | Purpose                                                                     | Fixtures                                             |
-| ------------------------------------ | --------------------------------------------------------------------------- | ---------------------------------------------------- |
-| `test_area_removed_orphans_edges`    | Removing wohnzimmer marks its edges + annotation `orphaned_at`, keeps data. | setup_integration, area_registry, store_payload_full |
-| `test_area_removed_fires_event`      | Orphaning pushes `change: "orphan"` with affected ids.                      | setup_integration, area_registry                     |
-| `test_area_rename_no_store_change`   | Update action → snapshot refresh + fanout, store bytes unchanged.           | setup_integration, area_registry                     |
-| `test_area_created_updates_snapshot` | New area appears as unannotated in snapshot + health.                       | setup_integration, area_registry                     |
-| `test_floor_registry_fanout`         | Floor level change re-emits snapshot (axis derivations refresh).            | setup_integration, floor_registry                    |
+| ID                                    | Purpose                                                                                | Fixtures                                             |
+| ------------------------------------- | -------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| `test_area_removed_orphans_edges`     | Removing wohnzimmer marks its edges + annotation `orphaned_at`, keeps data.            | setup_integration, area_registry, store_payload_full |
+| `test_area_removed_fires_event`       | Orphaning pushes `change: "orphan"` with affected ids.                                 | setup_integration, area_registry                     |
+| `test_area_rename_no_store_change`    | Update action → snapshot refresh + fanout, store bytes unchanged.                      | setup_integration, area_registry                     |
+| `test_area_created_updates_snapshot`  | New area appears as unannotated in snapshot + health.                                  | setup_integration, area_registry                     |
+| `test_floor_registry_fanout`          | Floor level change re-emits snapshot (axis derivations refresh).                       | setup_integration, floor_registry                    |
+| `test_floor_removed_orphans_override` | Removing a floor marks its `level_override` entry `orphaned_at` (72 h window applies). | setup_integration, floor_registry                    |
 
 ### Orphan-undo window
 
@@ -1339,7 +1453,7 @@ Shared fixtures (in `tests/conftest.py`): `hass` (HA test instance),
 | `test_health_orphans_listed`              | Orphaned edge/area ids appear in the respective lists.                                  | setup_integration, area_registry      |
 | `test_health_matches_house_sensor_inputs` | Health counts equal what Phase 3's house sensor will consume (single source: snapshot). | setup_integration                     |
 
-(50 tests. No test bodies here — Phase-2 implementation writes them.
+(54 tests. No test bodies here — Phase-2 implementation writes them.
 Note: AGENTS.md says "do not create tests unless explicitly requested" —
 this plan _is_ the explicit request; the ≥95 % coverage obligation
 starts Phase 3, but flow coverage is a Bronze rule now.)
@@ -1364,7 +1478,7 @@ graph TD
     D2 --> D3[d3: reconfigure step + home_config sync]
     C2 --> E1[e1: websocket_api.py — read commands: list/read_hook/health]
     C3 --> E1
-    E1 --> E2[e2: write commands: update_area/upsert_edge/delete/restore/set_beyond/update_home_config]
+    E1 --> E2[e2: write commands: update_area/upsert_edge/delete/restore/set_beyond/set_exterior_connections/set_floor_level/update_home_config]
     E2 --> E3[e3: subscribe_updates + event forwarding]
     B3 --> F1[f1: tests — store + enum groups]
     C3 --> F2[f2: tests — registry events + orphan window]
@@ -1386,53 +1500,26 @@ developer could take d + f3 while the first does c2/c3 + e.
 
 ---
 
-## 9. Open questions
+## 9. Resolved decisions (was: Open questions)
 
-Collected `⚠️ derived here` items needing reviewer confirmation, plus
-gaps the design plan does not answer. None block Phase 2 as specified —
-each has a working default above.
+The eleven items originally flagged as open (`⚠️ derived here` markers
+plus design-plan gaps) were reviewed and decided with the project owner
+on 2026-07-23. The decisions below are **binding** for Phase 2; the
+sections above already reflect them (referenced as D1–D11).
 
-1. **Floor-level completion storage.** v1 scope includes "floor-`level`
-   consumption + completion where unset", but the frozen store root has
-   only `home_config`/`areas`/`edges` — no `floors` section, and §10
-   freezes no Floor dataclass. Default taken here: Phase 2 stores
-   nothing for floors (read hook relays registry levels; unset level ⇒
-   `axis: unknown`); a `floors` section would be a v1.x minor-version
-   store addition. Confirm, or extend the schema now.
-2. **Exterior connections as boundary edges** (`area_b: null`, one
-   `{area_id}::*` edge per area, per-connection `inline_trust`). The
-   design demands the capability (§1 inline class; windows) but the
-   frozen root structure did not say where it lives. Confirm the
-   boundary-edge modeling.
-3. **Deterministic edge ids** (`min::max` / `id::*`) instead of opaque
-   uuids — makes `upsert_edge` idempotent per pair. Confirm.
-4. **Projection toggles: one or three?** Design text says "toggle"
-   (singular); store spec says `projection_toggles` with three keys.
-   Defaulted to three flow fields mirroring the store. Confirm.
-5. **`update_home_config` WS command** duplicates reconfigure-flow
-   fields so the panel can edit `occupancy_extent`. Alternative: panel
-   deep-links into the reconfigure flow. Confirm the command.
-6. **Import flags in Phase 2** are recorded but not executed (import
-   engine is Phase 6). Alternative: drop the two checkboxes from the
-   flow until Phase 6 and add them then — but that would unfreeze the
-   §10-frozen config-flow field set later. Confirm recorded-not-executed.
-7. **Phase-1 deletions beyond the frozen list:** `select/`,
-   `coordinator/listeners.py`, `options_flow.py` + `schemas/options.py`,
-   `subentry_flow.py`, `entity_utils/device_info.py` + `state_helpers.py`,
-   `utils/string_helpers.py`. All are blueprint boilerplate with no place
-   in the frozen architecture; confirm the sweep.
-8. **`garage` cascade** defaulted to indoor+private; a garage is often
-   only semi-enclosed. Cascade is just a pre-fill, so cost of a wrong
-   default is one click. Confirm or change to `semi_outdoor`.
-9. **Missing type-catalog values?** `balcony`/`terrace` feel natural for
-   `semi_outdoor` spaces but are NOT in §1's catalog — not added here
-   (no enum fabrication). Flag for a future catalog minor.
-10. **`unannotated` repair threshold** ("default 3, configurable" per
-    ADR) — the frozen config-flow field set has no field for it, so v1
-    keeps it a constant; "configurable" would need a flow/panel field
-    later. Confirm constant-only for v1.
-11. **Store payload `schema_version` duplication** of the `Store` header
-    version (deliberate, for self-describing diagnostics dumps). Confirm.
+| #   | Question                              | Decision                                                                                                                                                                                                                             |
+| --- | ------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | Floor-level completion storage        | **Store it now**: `floors[floor_id].level_override` section in store v1 (§2.2), `FloorOverride` dataclass (§6), `topology/set_floor_level` command (§4.8). Override is consulted only while the registry `level` is `None`.          |
+| D2  | Where exterior connections live       | **On the area**: `areas.*.exterior_connections` (§2.2), edited via `topology/set_exterior_connections` (§4.7). Edges are always interior (`area_b` non-null); perimeter derivation iterates edges + exterior lists.                  |
+| D3  | Edge-id form                          | **Deterministic**: `edge_id = f"{min(a, b)}::{max(a, b)}"`; `upsert_edge` idempotent per unordered pair. No uuids.                                                                                                                   |
+| D4  | Projection toggles in the flow        | **Three toggles** (`project_environment` / `project_type` / `project_trust`), isomorphic to the store's `projection_toggles`.                                                                                                        |
+| D5  | Home-config editing from the panel    | **`topology/update_home_config` exists** (§4.9); it mirrors the reconfigure flow, both write the same store fields.                                                                                                                  |
+| D6  | Import flags before Phase 6           | **Recorded, not executed**: the flow collects the opt-in, stores it pending in `home_config`; the one-shot import runs when Phase 6 lands. Flow field set stays frozen.                                                              |
+| D7  | Phase-1 deletions beyond the §10 list | **Full sweep confirmed**: `select/`, `coordinator/listeners.py`, `options_flow.py` + `schemas/options.py`, `subentry_flow.py`, `entity_utils/device_info.py` + `state_helpers.py`, `utils/string_helpers.py` are deleted (§1 table). |
+| D8  | `garage` cascade                      | **indoor + private** (most common form; a wrong pre-fill costs one click).                                                                                                                                                           |
+| D9  | Type catalog: `balcony` / `terrace`   | **Added** to the default catalog (13 values, §3.1) with cascades `semi_outdoor` / `outdoor`, trust unset. PLAN-topology.md §1's catalog list is amended in the same commit.                                                          |
+| D10 | Unannotated-repair threshold          | **Configurable now**: `unannotated_repair_threshold` field in flow (§5.1) + `home_config` (§2.2) + `update_home_config` (§4.9); default 3 (`DEFAULT_UNANNOTATED_REPAIR_THRESHOLD`).                                                  |
+| D11 | `schema_version` in the payload       | **Kept** alongside the `Store` header version (self-describing diagnostics dumps / manual restores); the header is authoritative on load.                                                                                            |
 
 ---
 

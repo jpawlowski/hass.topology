@@ -27,7 +27,9 @@ level):
 
 - **Area type** — an open catalog with defaults (`bedroom`, `living`,
   `kitchen`, `dining`, `bathroom`, `hallway`, `office`, `utility`,
-  `storage`, `garage`, `outdoor`). Type is a _descriptive hint_, never
+  `storage`, `garage`, `balcony`, `terrace`, `outdoor`; the latter two
+  added with the Phase-2 plan, decision D9 in
+  `PLAN-topology-phase2.md` §9). Type is a _descriptive hint_, never
   authoritative: it may seed defaults (e.g., suggest a `sleeping_place`
   when type = `bedroom`) but Residents' sleeping-area derivation stays the
   source of truth. Within topology, picking a type also **cascades
