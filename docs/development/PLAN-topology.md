@@ -290,6 +290,13 @@ topology when a dependent capability would benefit:
 
 ## 5. Sequencing
 
+> **Release gate:** v1 / v2 / v3 below are **internal planning
+> milestones**, implemented consecutively with no release in between.
+> Git carries no tag/release and HACS no listing until the full scope is
+> implemented end to end; see `DECISIONS.md` — "Release Strategy:
+> Internal Version Milestones, Single Initial Public Release" (incl.
+> the exclusions that are necessarily post-release).
+
 - **Residents first, independently.** topology is not on the critical
   path — no Residents v1 capability hard-depends on it, and the
   consumption code is guarded and added in a later minor.

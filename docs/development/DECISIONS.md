@@ -343,6 +343,63 @@ and non-blocking.
 
 ---
 
+### Release Strategy: Internal Version Milestones, Single Initial Public Release
+
+**Date:** 2026-07-23
+
+**Context:** The plan documents structure the scope as v1 (phases 1–8),
+v2+ (3D house view, starter templates, Assist intent pack), and v3
+(multi-instance, solar/quiet refinements), originally implying a public
+v1 release followed by later feature releases. The project owner decided
+these version labels are **internal planning milestones only**: the
+milestones are implemented consecutively, and git shows a version only
+once the full scope is implemented end to end.
+
+**Decision:**
+
+- v1 / v2 / v3 remain the planning and sequencing vocabulary in
+  `PLAN-topology.md`, but **no git tag, GitHub release, or HACS listing
+  is created per milestone**. Implementation proceeds v1 → v2 → v3
+  back to back on the default branch.
+- The **single initial public release** (`1.0.0`) happens only when the
+  full planned scope is implemented. Mechanics: the release-please PR
+  stays unmerged during development; merging it is the release act.
+  `manifest.json` stays on a `0.x` version until then.
+- Phase 8 (docs, brands, HACS listing, blueprints) is **deferred to the
+  end of the full scope**, not executed after the v1 milestone. The
+  Phase-8 deliverables themselves are unchanged.
+- **Exclusions (necessarily post-release):** the Core-merge path and
+  anything gated on a nontrivial user base / HACS install count (ADR
+  "Quality Target") cannot precede a public release by definition and
+  stay post-1.0.0. "Full scope" therefore means: everything in
+  `PLAN-topology.md` §5 v1 scope plus the v2+/v3 items that are
+  implementable without a published release; externally gated items are
+  out of the gate.
+- Interface freezes (PLAN-topology.md §10, PLAN-topology-phase2.md)
+  remain binding **internally** during development — Residents develops
+  against them — but pre-release changes need no public deprecation
+  window; a coordinated update of both repositories suffices.
+
+**Rationale:** The owner wants users to see one complete, coherent
+integration rather than an incremental early release; internal
+milestones keep the sequencing and freeze-gate discipline without
+publishing intermediate states.
+
+**Consequences:**
+
+- Longer time-to-first-feedback: no external users until 1.0.0 —
+  accepted trade-off; Residents (sister project) serves as the in-house
+  consumer providing integration feedback pre-release.
+- Conventional commits continue as-is; release-please accumulates the
+  changelog until the gate.
+- The "stable for two minor releases" precondition for a Core merge
+  starts counting only after 1.0.0.
+- Per-phase implementation planning is unchanged (plans are still
+  written per phase, right before the phase begins, per §10) — this ADR
+  changes only the release gate, not the planning cadence.
+
+---
+
 ## Future Considerations
 
 ### Multi-Instance Composition
