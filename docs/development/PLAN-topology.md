@@ -1,6 +1,11 @@
 # Topology — Interface Plan
 
-**Status:** Interface contract · Last updated 2026-07-21
+**Status:** Interface contract · Last updated 2026-07-23
+
+**Quality target:** Platinum-conformant from v1; official Platinum badge
+is only awarded to Core integrations and is targeted as a v2+ path via
+a Core merge (see `DECISIONS.md` — "Quality Target: Platinum-Conformant,
+Core Merge as v2+ Path", and §8 below for the full rule mapping).
 
 **topology will be implemented in a separate repository.** This document
 exists here only to pin the interface contract, so both integrations stay
@@ -34,7 +39,15 @@ level):
 
 - **Environment** — `indoor` · `outdoor` · `semi_outdoor` (covered
   balcony, porch). A balcony, terrace, or garden is a real area but a
-  fundamentally different kind of space than an interior room.
+  fundamentally different kind of space than an interior room. When
+  topology is installed but an area has been left unannotated, the read
+  hook returns `null` rather than a silent `indoor` default — the
+  conservative `indoor` fallback (§4) applies only when **topology itself
+  is absent**. Silently assuming `indoor` inside topology would let an
+  unannotated garden slip into perimeter-trust-delta reasoning as an
+  interior room and invert the perimeter set. Consumers treating `null`
+  as "unknown" is the correct discipline; the consistency signal (§3.6)
+  surfaces how many areas are still `null`.
 
 - **Trust / exposure class** — a per-area, user-set rating of how exposed
   a space is, **orthogonal to environment**: `private` (exclusively
@@ -79,8 +92,16 @@ level):
   - optional **sensor** — a Home Assistant door/window `binary_sensor` for
     live open/closed state (only meaningful for `barrier: door`).
   - optional **`glazed`** — the connection transmits daylight (a window,
-    interior or exterior). v1 keeps `barrier` coarse; separating light as
-    its own permeability (borrowed-light reasoning) is a later refinement.
+    interior or exterior). Orthogonal to `passage` and `barrier`: a
+    French window / balcony door is `{level, door, glazed}`, a plain
+    interior door is `{level, door}`, a fixed interior window between two
+    rooms is `{none, door, glazed}` (no passage, closable frame,
+    daylight-permeable), a wall-mounted skylight is `{none, open, glazed}`
+    when it can be opened, `{none, door, glazed}` when only openable via
+    a mechanism. v1 keeps `barrier` coarse for sound/air reasoning;
+    separating light as its own permeability (borrowed-light reasoning)
+    is a later refinement, but `glazed` is already the seed for v3
+    solar-gain / plant-light / passive-heating logic.
 
   So an open stairwell + lift between two landings is `{stairs, open}` and
   `{elevator, door, sensor}`; a plain shared wall is a single
@@ -158,6 +179,50 @@ forces neither; it only makes the chosen granularity machine-readable.
 topology is useful **standalone** — annotating areas is valuable without
 Residents — so it must never hard-depend on Residents.
 
+## 1a. Entities and services topology exposes
+
+Full rationale in `DECISIONS.md` — "Entity Model". Summary:
+
+- **`sensor.topology_house`** — one household summary sensor.
+  State = `annotated_count / area_count` as a percentage (0–100).
+  Attributes: `occupancy_extent`, `area_count`, `annotated_count`,
+  `unannotated_areas` (list of area_ids), `perimeter_connection_count`,
+  `outdoor_area_count`, `floor_count`. Always enabled. `entity_category`
+  unset (it is a user-facing summary, not a diagnostic).
+- **`binary_sensor.topology_perimeter_open`** — aggregate, `on` when any
+  perimeter connection with a bound `binary_sensor` is `on`. Attributes:
+  `open_connections` (list of `{edge_id, area_a, area_b, source_entity}`).
+  `device_class: opening`. Always enabled — this is the primary security
+  hook.
+- **`sensor.topology_<area_slug>_type`**, **`_environment`**, **`_trust`**
+  — one triple per area, `entity_category: diagnostic`, **disabled by
+  default**. Users opt in per area for dashboard/automation targeting
+  beyond the read hook. Options come from the corresponding enum;
+  `icon-translations` and `entity-translations` are pulled from
+  `strings.json` / `icons.json`.
+
+The adjacency graph, individual connections, and outer-wall `beyond`
+classifications remain accessible only via the read hook (§2, WebSocket
+API) and the panel — deliberately not one entity per connection, to keep
+registry churn bounded.
+
+**Services** (Phase 6 in §5):
+
+- `topology.annotate_area(area_id, type?, environment?, trust?)` — bulk
+  setter, used by imports and the panel.
+- `topology.declare_connection(area_a, area_b, preset, sensor?, side?,
+glazed?)` — panel-driven; preset expands to `passage` + `barrier`.
+- `topology.set_beyond(area_id, side, beyond)` — annotate an outer wall.
+- `topology.project_labels(scope: all|environment|type|trust)` — one-way
+  label projection (§6).
+- `topology.import_from_core(source: aliases|labels)` — one-shot import;
+  never runs automatically.
+
+Every service action is registered in `async_setup()` (not
+`async_setup_entry()`), raises `ServiceValidationError` on unknown
+`area_id` / `edge_id`, and is documented with selectors in
+`services.yaml`.
+
 ## 2. Interface contract: what Residents reads from topology
 
 | Value                          | Used for                                                                                                                   |
@@ -201,6 +266,13 @@ obligations bind topology:
    data and degrade **without re-implementing topology's own checks**. The
    checks themselves (§7) belong to topology and raise topology's own
    repair issues.
+7. **Reactive registry integration** — subscribe to
+   `area_registry_updated` and `floor_registry_updated` events; area
+   deletion marks referencing edges as _orphaned_ with a 72 h undo
+   window; area addition raises no immediate write but updates the
+   household sensor's `unannotated_areas` attribute and, past a threshold,
+   raises a repair issue. Rationale and mechanics in `DECISIONS.md` —
+   "Registry-Driven State With Reactive Cleanup".
 
 ## 4. Degradation without topology
 
@@ -224,21 +296,57 @@ topology when a dependent capability would benefit:
 - The Residents-side consumption wires in after topology exists and after
   Residents' own entity/attribute contract is frozen (PLAN.md §9), so the
   read hook can be versioned against a stable model on both ends.
-- topology v1 scope (planned in its own repository): area type catalog,
-  environment flag, per-area trust/exposure class (`private`/`shared`/
-  `public`) with derived perimeter connections (+ optional manual
-  `perimeter` flag for same-trust unit boundaries), adjacency graph whose
-  edges carry a **list of connections** — each with `passage` + `barrier`,
-  an optional cardinal side, an optional `glazed` marker, and an optional
-  door/window `binary_sensor` (axis derived from floors), outer-wall
-  `beyond` classification (`outdoor` / `neighbor` / `earth`) + home
-  occupancy extent (`whole_property` / `unit_within_building`),
-  floor-`level` consumption + completion where
-  unset, opt-in label projection of `environment`/`type`/trust (§6), admin
-  UI / panel for drawing edges and placing connections via named presets
-  (expanding to `passage` + `barrier`), a read-only schematic per-floor
-  map + consistency view (§7), read hook for consumers, diagnostics.
+- topology v1 scope (planned in its own repository):
+  - Manifest as documented in `DECISIONS.md` ("Manifest Declaration"):
+    `helper` + `calculated` + `single_config_entry: true` +
+    `quality_scale: platinum` (self-declared).
+  - Blueprint-boilerplate purge (Phase 1 in §5-analog): delete `api/`,
+    the polling `error_handling.py` / `data_processing.py`, and every
+    example platform (`fan/`, `switch/`, `number/`, `button/`).
+  - Event-fanout coordinator (see `DECISIONS.md` — "Coordinator Role")
+    replacing the polling coordinator; `PARALLEL_UPDATES = 0`.
+  - Entity model per §1a: `sensor.topology_house`,
+    `binary_sensor.topology_perimeter_open`, and disabled-by-default
+    per-area diagnostics for `type`/`environment`/`trust`.
+  - Area type catalog, environment flag, per-area trust/exposure class
+    (`private`/`shared`/`public`) with derived perimeter connections
+    (+ optional manual `perimeter` flag for same-trust unit boundaries).
+  - Adjacency graph whose edges carry a **list of connections** — each
+    with `passage` + `barrier`, an optional cardinal side, an optional
+    `glazed` marker, and an optional door/window `binary_sensor` (axis
+    derived from floors).
+  - Outer-wall `beyond` classification (`outdoor` / `neighbor` / `earth`)
+    - home occupancy extent (`whole_property` / `unit_within_building`),
+      floor-`level` consumption + completion where unset.
+  - **Config flow (singleton)** for setup-level choices only
+    (`occupancy_extent`, opt-in imports, label-projection toggle) —
+    covers Bronze `test-before-configure` / `test-before-setup` with
+    meaningful checks (area registry accessible, store readable).
+  - **Admin UI / panel** as the primary editing surface for area
+    annotations, edges, and connections via named presets (expanding to
+    `passage` + `barrier`); WebSocket API with `connection.user` auth,
+    writes admin-gated. Rationale in `DECISIONS.md` — "Editing Surface".
+  - **Reactive registry watcher**: area/floor add/rename/delete handling
+    with 72 h orphan-undo window; automatic startup + daily cleanup.
+  - **One-shot imports** (opt-in): from HA area `aliases` (heuristic
+    `type` inference) and from user labels (as seed for `environment` /
+    `type`). Never live consumption.
+  - Read-only **schematic per-floor 2D map** + consistency view (§7).
+  - Read hook for consumers (WebSocket API + attribute conventions);
+    documented enums; consistency / health signal.
+  - Diagnostics (`async_redact_data` for optional freetext fields;
+    graph + trust distribution otherwise non-sensitive).
+  - Opt-in **label projection** of `environment`/`type`/trust (§6).
+  - Repairs (see §8): unannotated-area threshold, orphaned edges past
+    undo window, contradictory bearings, exterior openings on non-outdoor
+    walls, unknown enum values after downgrade.
+  - Blueprints published alongside v1 for the anchor consumers listed in
+    §9 (perimeter-at-night notify, west-side covers at sunset,
+    ventilation coordination).
 - **Later (v2+), not v1:**
+  - **3D house view** — floors stacked by `level` into one orbit/zoom
+    "house"; procedural layout. Split from the v1 per-floor 2D map so
+    frontend work does not block v1 release. Details in §7.
   - **Starter templates** — one-click scaffolds that create several areas
     - connections at once (e.g. "apartment" → typical rooms + a `shared`
       hallway + a perimeter front door; "two-storey house" → ground and
@@ -246,13 +354,22 @@ topology when a dependent capability would benefit:
       variant/maintenance cost and a real risk the template never matches
       the actual home. The two-axis connection presets and the `type`
       cascade cover everyday setup without it.
-  - **House view** — the per-floor maps stacked into one "house" (§7).
+  - **Assist intent pack** — dedicated `intent_script` handlers that
+    expose topology filters to the built-in Light/Cover/Lock intents
+    ("outside", "north-facing", "on the perimeter"). v1 ships only
+    documented Jinja recipes (§9).
+  - **Multi-instance composition** — see `DECISIONS.md` "Future
+    Considerations — Multi-Instance Composition".
+  - Core-`type` merge facade — see `DECISIONS.md` "Future Considerations
+    — Core Contribution of `type`". No action until Core lands the field.
 
 ## 6. Label projection & exit (Core interop)
 
 topology is the **area-facing half** of the shared label-projection
-policy; the full rule set lives in Residents' PLAN.md §5. One-way,
-opt-in, integration-owned:
+policy; **`PLAN.md` §5 is the policy owner** and this section mirrors it.
+When the policy in Residents changes, topology follows in the same
+minor release; a mismatch between the two documents is a bug, not a
+divergence. One-way, opt-in, integration-owned:
 
 - Projects **`environment`** (indoor/outdoor), room **`type`**, and the
   **trust class** (`private`/`shared`/`public`) onto **area** labels
@@ -300,8 +417,11 @@ legible and explorable.
 - **Per-floor view (v1)** — one view per floor: areas as blocks (icon /
   label by `type`, tint by `trust`, indoor/outdoor styling by
   `environment`), connections drawn between them (styled by `passage` /
-  `barrier` — door vs. open vs. solid wall, stair / lift marked). Ships the
-  verification value cheaply; may start 2D and gain depth later.
+  `barrier` — door vs. open vs. solid wall, stair / lift marked). Ships
+  the verification value cheaply and **is explicitly 2D in v1** — the 3D
+  house view is a separate v2+ milestone so a slipping frontend estimate
+  never blocks v1 release. The 2D map already carries all consistency
+  checks below.
 - **Consistency check (v1)** — being a faithful render of the graph, the
   view doubles as QA: isolated areas (no connection), an _indoor_ area on
   no floor (outdoor areas may legitimately have none), missing bearings,
@@ -324,3 +444,140 @@ legible and explorable.
   optional **presentation-only** node nudging (drag to declutter) may be
   stored as display hints, kept strictly separate from the semantic model —
   layout sugar, never coordinates that carry meaning.
+
+## 8. Quality Scale rule mapping (Platinum target)
+
+Every rule from Bronze up through Platinum. Status is one of:
+**IMPL** (implemented / to implement in the phase noted), **N/A**
+(legitimately not applicable — reason recorded), **DECL** (self-declared
+compliance, no automated check). Rationale is anchored in an ADR where
+non-obvious.
+
+### Bronze
+
+| Rule                             | Status | Phase | Note                                                                                     |
+| -------------------------------- | ------ | ----- | ---------------------------------------------------------------------------------------- |
+| `action-setup`                   | IMPL   | 6     | Services registered in `async_setup`, not `async_setup_entry`                            |
+| `appropriate-polling`            | N/A    | —     | Event-driven; no polling. ADR "Coordinator Role"                                         |
+| `brands`                         | IMPL   | 8     | PR to `home-assistant/brands` before release                                             |
+| `common-modules`                 | IMPL   | 1–2   | `coordinator.py` (event fanout) + `entity.py`                                            |
+| `config-flow`                    | IMPL   | 2     | Singleton setup flow; ADR "Editing Surface"                                              |
+| `config-flow-test-coverage`      | IMPL   | 2     | pytest coverage of every flow branch                                                     |
+| `dependency-transparency`        | IMPL   | 1     | No PyPI dependencies                                                                     |
+| `docs-actions`                   | IMPL   | 8     | Every service action in user docs                                                        |
+| `docs-high-level-description`    | IMPL   | 8     | `docs/user/index.md`                                                                     |
+| `docs-installation-instructions` | IMPL   | 8     | HACS + manual                                                                            |
+| `docs-removal-instructions`      | IMPL   | 8     | Plus label leave-behind explanation (§6)                                                 |
+| `entity-event-setup`             | IMPL   | 3     | Register listeners in `async_added_to_hass`, unregister in `async_will_remove_from_hass` |
+| `entity-unique-id`               | IMPL   | 3     | Household + perimeter: fixed; per-area: `f"{entry_id}_{area_id}_{axis}"`                 |
+| `has-entity-name`                | IMPL   | 3     | All entities set `_attr_has_entity_name = True`                                          |
+| `runtime-data`                   | IMPL   | 2     | Typed dataclass in `ConfigEntry.runtime_data`                                            |
+| `test-before-configure`          | IMPL   | 2     | Area registry accessible, store loadable                                                 |
+| `test-before-setup`              | IMPL   | 2     | Same checks in `async_setup_entry`                                                       |
+| `unique-config-entry`            | IMPL   | 2     | `single_config_entry: true` in manifest                                                  |
+
+### Silver
+
+| Rule                            | Status | Phase | Note                                                              |
+| ------------------------------- | ------ | ----- | ----------------------------------------------------------------- |
+| `action-exceptions`             | IMPL   | 6     | `ServiceValidationError` / `HomeAssistantError` per HA convention |
+| `config-entry-unloading`        | IMPL   | 2     | Full unload of listeners + WS handlers                            |
+| `docs-configuration-parameters` | IMPL   | 8     | Every config-flow field documented                                |
+| `docs-installation-parameters`  | IMPL   | 8     | `occupancy_extent`, imports, projection toggles                   |
+| `entity-unavailable`            | IMPL   | 3     | Set unavailable when store fails to load                          |
+| `integration-owner`             | IMPL   | 1     | `codeowners: ["@jpawlowski"]` in manifest                         |
+| `log-when-unavailable`          | IMPL   | 3     | Info-level, once per unavailability transition                    |
+| `parallel-updates`              | IMPL   | 3     | `PARALLEL_UPDATES = 0` per platform                               |
+| `reauthentication-flow`         | N/A    | —     | No credentials                                                    |
+| `test-coverage`                 | IMPL   | 3+    | ≥ 95 % from Phase 3 onward; enforced in CI                        |
+
+### Gold
+
+| Rule                         | Status | Phase | Note                                                                   |
+| ---------------------------- | ------ | ----- | ---------------------------------------------------------------------- |
+| `devices`                    | N/A    | —     | No physical devices; ADR "Manifest Declaration"                        |
+| `diagnostics`                | IMPL   | 6     | Adjacency graph + trust distribution; `async_redact_data` for freetext |
+| `discovery`                  | N/A    | —     | Nothing to discover                                                    |
+| `discovery-update-info`      | N/A    | —     | See above                                                              |
+| `docs-data-update`           | IMPL   | 8     | Event-driven model, no polling; document the invalidation flow         |
+| `docs-examples`              | IMPL   | 8     | Ship blueprints from §9 as examples                                    |
+| `docs-known-limitations`     | IMPL   | 8     | Single instance, no coordinate geometry, no runtime label consumption  |
+| `docs-supported-devices`     | N/A    | —     | No devices                                                             |
+| `docs-supported-functions`   | IMPL   | 8     | Enumerated feature list                                                |
+| `docs-troubleshooting`       | IMPL   | 8     | Registry-event debugging, orphan cleanup, panel access                 |
+| `docs-use-cases`             | IMPL   | 8     | Anchor consumers in §9                                                 |
+| `dynamic-devices`            | N/A    | —     | No devices                                                             |
+| `entity-category`            | IMPL   | 3     | Per-area triples: `diagnostic`; house sensor: unset                    |
+| `entity-device-class`        | IMPL   | 3     | Perimeter binary: `opening`; per-area: no matching class               |
+| `entity-disabled-by-default` | IMPL   | 3     | Per-area triples disabled by default                                   |
+| `entity-translations`        | IMPL   | 3     | `strings.json` per entity                                              |
+| `exception-translations`     | IMPL   | 6     | `strings.json` `exceptions` block                                      |
+| `icon-translations`          | IMPL   | 3     | `icons.json` per state                                                 |
+| `reconfiguration-flow`       | IMPL   | 2     | Mirrors initial setup only                                             |
+| `repair-issues`              | IMPL   | 6     | Set defined in §5 v1 scope                                             |
+| `stale-devices`              | N/A    | —     | No devices                                                             |
+
+### Platinum
+
+| Rule                | Status | Phase | Note                                                           |
+| ------------------- | ------ | ----- | -------------------------------------------------------------- |
+| `async-dependency`  | N/A    | —     | No external dependency; ADR "Manifest Declaration"             |
+| `inject-websession` | N/A    | —     | No HTTP                                                        |
+| `strict-typing`     | IMPL   | 1+    | Pyright strict mode; `py.typed` marker; no `Any` in public API |
+
+**Blockers for the official badge**, tracked in `DECISIONS.md` — "Quality
+Target":
+
+1. `documentation` URL must move to
+   `https://www.home-assistant.io/integrations/topology` — requires a
+   Core merge (v2+).
+2. Core-team architecture review — scheduled once user base is
+   nontrivial.
+3. Test coverage ≥ 95 % continuously — enforced from Phase 3 onward.
+
+## 9. Ecosystem anchor consumers
+
+topology's data is useful in itself, but the biggest ecosystem lift comes
+from shipping reference wiring for the integrations most likely to
+consume it. Everything below is documented and — where it makes sense —
+shipped as a **blueprint** with v1, so users get value on day one instead
+of building the plumbing themselves.
+
+- **Residents** (this repo's canonical consumer) — full contract in §2.
+- **Alarmo / `alarm_control_panel`** — the derived perimeter-connection
+  set (`binary_sensor.topology_perimeter_open` + attribute list) is a
+  drop-in replacement for the "list every door/window sensor by hand"
+  pattern. The read hook exposes each perimeter edge's bound
+  `binary_sensor`, so an Alarmo config can be built from a template
+  fetch rather than hard-coded lists.
+- **Assist / Voice** — topology attributes unlock filters like "outside",
+  "north-facing", "on the perimeter" for the built-in Light / Cover /
+  Lock intents. v1 ships **documented Jinja recipes** in `docs/user/`;
+  a dedicated `intent_script` extension pack is v2+.
+- **Adaptive Lighting / circadian integrations** — `bearing` per
+  connection + `glazed` flag unlock west-facing / east-facing filtering
+  without hard-coding entity lists per room.
+- **Energy / weather-reactive automations** — `outdoor` areas as a
+  first-class target (retract awnings, protect balcony plants), `glazed`
+  exterior connections as a passive-solar signal (v3), `beyond: earth`
+  as a passive-cooling signal.
+- **Notification layer (`courier`, planned in a sister repo)** — reads
+  `needs_quiet` (derived by Residents from topology `environment`) and
+  the trust class to decide discretion on shared channels.
+
+**Blueprints shipped with v1** (as concrete examples for `docs-examples`
+and to seed adoption):
+
+1. _Notify when a perimeter door opens at night_ — uses
+   `binary_sensor.topology_perimeter_open` + a sun/phase condition.
+2. _Close covers on the west side before sunset_ — uses per-connection
+   `bearing` filter via `expand` on adjacency attributes.
+3. _Alarm exterior sensors when away_ — auto-selects perimeter
+   connections without hard-coding entity lists.
+4. _Ventilation coordination_ — throttle ventilation when any
+   `barrier: door` / `barrier: open` connection to an `outdoor` area is
+   open.
+
+Each blueprint's template consumes only stable, documented attributes
+from §1a and the read hook §2 — the same contract that Residents,
+Alarmo, and any third-party consumer will use.

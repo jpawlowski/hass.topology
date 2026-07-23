@@ -370,6 +370,9 @@ Recorded as ADRs in [DECISIONS.md](./DECISIONS.md); summary:
   leave-behind so the facts survive) and purgeable on request; anything
   not projectable exits via the diagnostics export (Phase 6). topology
   owns the area-facing half — see [PLAN-topology.md](./PLAN-topology.md).
+  **This section is the policy owner** for label projection across both
+  repositories: topology's `PLAN-topology.md` §6 mirrors these rules and
+  follows any change made here within the same minor release.
 
 **Still open** (decide before Phase 3):
 
