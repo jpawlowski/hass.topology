@@ -581,3 +581,102 @@ and to seed adoption):
 Each blueprint's template consumes only stable, documented attributes
 from §1a and the read hook §2 — the same contract that Residents,
 Alarmo, and any third-party consumer will use.
+
+## 10. Design freeze points
+
+The design-plan sections above deliberately stop above the code layer;
+the concrete per-phase implementation plans (dataclass signatures,
+store schemas, WS command payloads, entity IDs, etc.) are written
+**per phase, right before that phase begins**. What must be _frozen_
+before a given phase's implementation plan can be written is captured
+here, so an implementation-plan author knows what they may fix in
+stone and what they must leave open.
+
+Each freeze point is a hand-off gate: once passed, changing the frozen
+artifact costs a deprecation window (analogous to `PLAN.md` §9's public
+interface commitments, but internal).
+
+### Before Phase 1 (skeleton cleanup) — frozen now
+
+- Manifest: `integration_type: helper`, `iot_class: calculated`,
+  `single_config_entry: true`, `quality_scale: platinum`
+  (`DECISIONS.md` — "Manifest Declaration").
+- Package layout: keep `coordinator/`, `entity/`, `entity_utils/`,
+  `config_flow_handler/`, `service_actions/`, `utils/`, `translations/`,
+  `sensor/`, `binary_sensor/`; **delete** `api/`, `fan/`, `switch/`,
+  `number/`, `button/`, and the polling helpers
+  (`error_handling.py`, `data_processing.py`).
+- Coordinator role: event fanout, no polling
+  (`DECISIONS.md` — "Coordinator Role"); `PARALLEL_UPDATES = 0`.
+- Python + HA baseline: HA 2026.7, Python 3.13, Pyright strict mode,
+  `py.typed` marker.
+
+### Before Phase 2 (data model, config flow, storage)
+
+Must be frozen — this is the next active gate:
+
+- **Store JSON schema v1** — dataclass shape for `AreaAnnotation`,
+  `Edge`, `Connection`, `Beyond`, `HomeConfig`; storage version
+  constant; migration hook signature; example payload.
+- **Enum sets v1** — exact values for `type` (initial catalog),
+  `environment`, `trust`, `passage`, `barrier`, `beyond`,
+  `occupancy_extent`; connection-preset name → `passage`+`barrier`
+  expansion table.
+- **Enum-versioning policy** — how a consumer reads an unknown enum
+  value produced by a newer topology version: fallback to `null` on the
+  read hook + raise repair issue on downgrade. Documented in
+  `docs/development/` alongside the schema.
+- **WebSocket API contract v1** — command list, payload shapes,
+  response shapes, error codes, change-notification event names.
+  Frozen as the public interface commitment analog to `PLAN.md` §9.
+- **Config-flow field set** — occupancy_extent, opt-in imports,
+  label-projection toggle; Voluptuous schema definitions.
+- **`runtime_data` structure** — the typed dataclass held on
+  `ConfigEntry.runtime_data`.
+- **Consistency / health signal shape** — the structure returned as
+  part of the WS read hook (§3.6).
+
+### Before Phase 3 (entities)
+
+- **Entity ID scheme** — exact patterns for `sensor.topology_house`,
+  `binary_sensor.topology_perimeter_open`, and per-area
+  `sensor.topology_<area_slug>_type|environment|trust`.
+- **`unique_id` generation rules** — deterministic, migration-safe
+  (survives area rename).
+- **Attribute names + machine-readable formats** — the public entity
+  contract; from this point changes require a deprecation window.
+- **`icon-translations` + `entity-translations` key set** — every
+  entity+state combination that needs an icon or a label.
+
+### Before Phase 4 (aggregates + derivations)
+
+- **Perimeter-open derivation semantics** — any-of over bound sensors,
+  debounce interval, behavior when a bound sensor is unavailable.
+- **Adjacency-graph queries the read hook must serve** — neighbors of
+  X, path between X and Y, all connections carrying `outdoor` on one
+  side, etc. Pins the query surface v3 quiet grading will call.
+
+### Before Phase 5 (repairs + services)
+
+- **Repair-issue id scheme + severity mapping** — one id per issue
+  class (unannotated-threshold, orphaned-past-undo, contradictory-
+  bearings, exterior-opening-on-non-outdoor, unknown-enum-after-
+  downgrade), plus fix-flow entry points.
+- **Diagnostics redaction rules** — which fields carry PII / freetext
+  and pass through `async_redact_data`.
+
+### Before Phase 7 (panel)
+
+- **Frontend build pipeline** — Lit vs. plain JS for v1 2D map, bundler
+  (esbuild / vite / none), asset-hashing scheme for cache-busting; CSP
+  constraint: no external CDN, everything inlined or `StaticPathConfig`-
+  served.
+- **WebSocket auth model details** — which commands require
+  `@require_admin`, which are read-only for authenticated users.
+
+### Before Phase 8 (release)
+
+- **Blueprint distribution mechanism** — in-repo under `blueprints/`
+  with Blueprint-Exchange import URLs, vs. a companion blueprint repo.
+- **HACS listing form** — category, filters, screenshots.
+- **Brands PR content** — icon set, logo, colors.
