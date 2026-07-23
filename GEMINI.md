@@ -13,10 +13,10 @@ Read `AGENTS.md` completely before starting any work. It contains:
 
 ## Quick Reference
 
-- **Domain:** `ha_integration_domain`
-- **Title:** Integration Blueprint
-- **Class prefix:** `IntegrationBlueprint`
-- **Main code:** `custom_components/ha_integration_domain/`
+- **Domain:** `topology`
+- **Title:** Topology
+- **Class prefix:** `Topology`
+- **Main code:** `custom_components/topology/`
 - **Validate:** `script/check` (type-check + lint + spell)
 - **Test:** `script/test`
 - **Run HA:** `./script/develop`
