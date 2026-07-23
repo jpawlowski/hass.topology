@@ -1,11 +1,9 @@
 """
-Custom types for topology.
+Runtime data types for topology.
 
-This module defines the runtime data structure attached to each config entry.
-Access pattern: entry.runtime_data.client / entry.runtime_data.coordinator
-
-The TopologyConfigEntry type alias is used throughout the integration
-for type-safe access to the config entry's runtime data.
+Attached to each config entry as `entry.runtime_data` after successful
+setup. Phase 1 keeps it minimal (only the loaded `Integration` handle);
+later phases add the registry watcher, graph index, and stores.
 """
 
 from __future__ import annotations
@@ -17,21 +15,12 @@ if TYPE_CHECKING:
     from homeassistant.config_entries import ConfigEntry
     from homeassistant.loader import Integration
 
-    from .api import TopologyApiClient
-    from .coordinator import TopologyDataUpdateCoordinator
 
-
-type TopologyConfigEntry = ConfigEntry[TopologyData]
+type TopologyConfigEntry = ConfigEntry["TopologyData"]
 
 
 @dataclass
 class TopologyData:
-    """Runtime data for topology config entries.
+    """Runtime data for the topology hub config entry."""
 
-    Stored as entry.runtime_data after successful setup.
-    Provides typed access to the API client and coordinator instances.
-    """
-
-    client: TopologyApiClient
-    coordinator: TopologyDataUpdateCoordinator
     integration: Integration
