@@ -13,5 +13,6 @@ Package structure:
 from __future__ import annotations
 
 from .base import TopologyCoordinator
+from .registry_watcher import TopologyRegistryWatcher
 
-__all__ = ["TopologyCoordinator"]
+__all__ = ["TopologyCoordinator", "TopologyRegistryWatcher"]
