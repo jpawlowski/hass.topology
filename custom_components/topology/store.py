@@ -131,9 +131,13 @@ class TopologyStore:
     async def async_load(self) -> TopologySnapshot:
         """Load and validate the payload, migrating older versions.
 
-        Raises ``StoreCorruptError`` on invalid JSON and
-        ``StoreFutureVersionError`` on a newer schema version — both without
-        modifying the on-disk file (§5.1, §5.3 test-before-setup).
+        The on-disk envelope is read directly so corruption and a future
+        version can be rejected without the HA Store renaming or rewriting the
+        file (§5.1, §5.3 test-before-setup). Migration is routed through the
+        frozen ``_async_migrate_func`` hook (§2.3).
+
+        Raises ``StoreCorruptError`` on invalid JSON, ``StoreFutureVersionError``
+        on a newer schema version, and ``TopologyStoreError`` on transient I/O.
         """
         envelope = await self._hass.async_add_executor_job(self._read_envelope, self._store.path)
         if envelope is None:
@@ -144,10 +148,17 @@ class TopologyStore:
         if version > STORAGE_VERSION:
             raise StoreFutureVersionError(version)
 
-        # Valid JSON, version <= current: let the HA Store perform the normal
-        # load (and migration + re-save when version < current).
-        loaded = await self._store.async_load()
-        self._data = loaded if loaded is not None else default_store_data()
+        data = envelope.get("data")
+        if not isinstance(data, dict):
+            raise StoreCorruptError("topology store envelope has no data object")
+
+        if version < STORAGE_VERSION:
+            minor = int(envelope.get("minor_version", 1))
+            migrated = await self._store._async_migrate_func(version, minor, data)  # noqa: SLF001
+            self._data = migrated
+            await self._store.async_save(self._data)
+        else:
+            self._data = cast("TopologyStoreData", data)
         return self.snapshot()
 
     @staticmethod
