@@ -3,8 +3,64 @@
     "step": {
       "user": {
         "title": "Topology",
-        "description": "Set up the topology helper."
+        "description": "Set up the topology helper. These home-level settings can be changed later from the reconfigure flow or the topology panel.",
+        "data": {
+          "occupancy_extent": "Occupancy extent",
+          "import_aliases": "Import area aliases",
+          "import_labels": "Import area labels",
+          "project_environment": "Project environment onto areas",
+          "project_type": "Project type onto areas",
+          "project_trust": "Project trust onto areas",
+          "unannotated_repair_threshold": "Unannotated-area repair threshold"
+        },
+        "data_description": {
+          "occupancy_extent": "Whether all areas form a standalone property or a unit inside a larger building. This sets the default for unmodeled outer walls.",
+          "import_aliases": "Seed area annotations from existing area aliases once. The import runs when import support lands (a later release); until then the opt-in is only recorded.",
+          "import_labels": "Seed area annotations from existing area labels once. The import runs when import support lands (a later release); until then the opt-in is only recorded.",
+          "unannotated_repair_threshold": "Number of unannotated areas at which a repair suggestion is raised."
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure Topology",
+        "description": "Update the home-level topology settings.",
+        "data": {
+          "occupancy_extent": "Occupancy extent",
+          "project_environment": "Project environment onto areas",
+          "project_type": "Project type onto areas",
+          "project_trust": "Project trust onto areas",
+          "unannotated_repair_threshold": "Unannotated-area repair threshold"
+        },
+        "data_description": {
+          "occupancy_extent": "Whether all areas form a standalone property or a unit inside a larger building. This sets the default for unmodeled outer walls.",
+          "unannotated_repair_threshold": "Number of unannotated areas at which a repair suggestion is raised."
+        }
       }
+    },
+    "error": {
+      "area_registry_unavailable": "The area registry could not be read. Please try again.",
+      "store_corrupt": "The topology store could not be read. It may be corrupt; restore from a backup and try again."
+    },
+    "abort": {
+      "store_future_version": "The topology store was written by a newer version of the integration and cannot be read after a downgrade.",
+      "reconfigure_successful": "Reconfiguration was successful."
+    }
+  },
+  "selector": {
+    "occupancy_extent": {
+      "options": {
+        "whole_property": "Whole property (standalone home)",
+        "unit_within_building": "Unit within a building"
+      }
+    }
+  },
+  "issues": {
+    "store_future_version": {
+      "title": "Topology store is from a newer version",
+      "description": "The topology store on disk is schema version {version}, which is newer than this installation supports. Topology cannot load until you upgrade the integration again or restore a compatible backup."
+    },
+    "unknown_enum_after_downgrade": {
+      "title": "Topology store has unrecognized values",
+      "description": "The topology store contains at least one value this version does not recognize (for example {field} = \"{value}\"), likely from a newer release. {count} such value(s) are shown as unknown and are preserved untouched; upgrade the integration again to restore them."
     }
   }
 }
