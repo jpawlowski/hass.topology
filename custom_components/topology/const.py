@@ -40,3 +40,25 @@ CONF_PROJECT_ENVIRONMENT = "project_environment"
 CONF_PROJECT_TYPE = "project_type"
 CONF_PROJECT_TRUST = "project_trust"
 CONF_UNANNOTATED_REPAIR_THRESHOLD = "unannotated_repair_threshold"
+
+# --- entities (Phase 3, PLAN-topology-phase3.md §3–§5) ---------------------
+# The integration domain is not auto-prefixed into an entity_id and topology
+# has no device to supply the prefix, so entity object_ids embed it explicitly
+# (§4.3).
+ENTITY_ID_PREFIX = DOMAIN  # "topology"
+
+# Per-area annotation dimensions surfaced as diagnostic sensors (§3.3). The
+# value is the literal store field name and the unique_id/object_id suffix
+# (§4.2/§4.3, decision D4).
+DIMENSION_TYPE = "type"
+DIMENSION_ENVIRONMENT = "environment"
+DIMENSION_TRUST = "trust"
+AREA_DIMENSIONS: tuple[str, ...] = (DIMENSION_TYPE, DIMENSION_ENVIRONMENT, DIMENSION_TRUST)
+
+# unique_id / object_id suffixes for the singleton entities (§4).
+SUFFIX_HOUSE = "house"
+SUFFIX_PERIMETER_OPEN = "perimeter_open"
+
+# Entity translation keys (§5). Per-area keys are ``area_{dimension}``.
+TRANSLATION_KEY_HOUSE = "house"
+TRANSLATION_KEY_PERIMETER_OPEN = "perimeter_open"
