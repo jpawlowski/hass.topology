@@ -37,6 +37,31 @@ async def test_area_removed_orphans_edges(
     assert store.data["areas"]["wohnzimmer"]["type"] == "living"
 
 
+async def test_area_recreated_clears_orphan(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    store_payload_full: dict[str, Any],
+    load_payload: Callable[[MockConfigEntry, dict[str, Any]], None],
+) -> None:
+    """Recreating a removed area with the same id clears its orphan flags."""
+    load_payload(setup_integration, store_payload_full)
+    store = setup_integration.runtime_data.store
+
+    area_registry.async_delete("wohnzimmer")
+    await hass.async_block_till_done()
+    assert store.data["areas"]["wohnzimmer"].get("orphaned_at") is not None
+    assert store.data["edges"]["flur::wohnzimmer"].get("orphaned_at") is not None
+
+    recreated = area_registry.async_create("wohnzimmer")
+    assert recreated.id == "wohnzimmer"
+    await hass.async_block_till_done()
+
+    assert "orphaned_at" not in store.data["areas"]["wohnzimmer"]
+    assert "orphaned_at" not in store.data["edges"]["flur::wohnzimmer"]
+    assert "orphaned_at" not in store.data["edges"]["kueche::wohnzimmer"]
+
+
 async def test_area_removed_fires_event(
     hass: HomeAssistant,
     setup_integration: MockConfigEntry,

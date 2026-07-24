@@ -176,6 +176,22 @@ async def test_ws_upsert_edge_create_and_replace(
     assert len(second["result"]["connections"]) == 2
 
 
+async def test_ws_upsert_edge_empty_bundle_rejected(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """An empty connection bundle is rejected (§2.2/§4.3 minItems: 1)."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {"type": "topology/upsert_edge", "area_a": "flur", "area_b": "kueche", "connections": []}
+    )
+    response = await client.receive_json()
+    assert response["error"]["code"] == "invalid_format"
+    assert not setup_integration.runtime_data.store.edge_exists("flur::kueche")
+
+
 async def test_ws_upsert_edge_normalizes_pair(
     hass: HomeAssistant,
     setup_integration: MockConfigEntry,
@@ -345,6 +361,33 @@ async def test_ws_set_floor_level(
     await client.send_json_auto_id({"type": "topology/set_floor_level", "floor_id": "ghost", "level": 1})
     response = await client.receive_json()
     assert response["error"]["code"] == "floor_not_found"
+
+
+async def test_ws_update_home_config_persists_across_reload(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """A panel home-config edit is mirrored into entry.data and survives a reload."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            "type": "topology/update_home_config",
+            "occupancy_extent": "unit_within_building",
+            "unannotated_repair_threshold": 9,
+        }
+    )
+    response = await client.receive_json()
+    assert response["success"]
+    assert setup_integration.data["occupancy_extent"] == "unit_within_building"
+    assert setup_integration.data["unannotated_repair_threshold"] == 9
+
+    await hass.config_entries.async_reload(setup_integration.entry_id)
+    await hass.async_block_till_done()
+
+    home = setup_integration.runtime_data.store.data["home_config"]
+    assert home["occupancy_extent"] == "unit_within_building"
+    assert home["unannotated_repair_threshold"] == 9
 
 
 async def test_ws_read_hook_envelope(

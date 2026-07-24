@@ -18,6 +18,7 @@ from datetime import timedelta
 from typing import TYPE_CHECKING
 
 from custom_components.topology.const import ORPHAN_UNDO_WINDOW
+from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers.area_registry import EVENT_AREA_REGISTRY_UPDATED
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.floor_registry import EVENT_FLOOR_REGISTRY_UPDATED
@@ -73,10 +74,16 @@ class TopologyRegistryWatcher:
                 self._coordinator.async_publish(snapshot, "orphan", affected)
             else:
                 self._coordinator.async_publish(snapshot, "area", [area_id])
+        elif action in ("create", "update") and area_id is not None:
+            # A removed area that reappears with the same id must lose its orphan
+            # flag (and its now-complete edges), else the undo window purges data
+            # the user got back. For all other create/update events this is a
+            # no-op that just fans out the merged registry view.
+            present = {area.id for area in ar.async_get(self._hass).async_list_areas()}
+            snapshot, affected = await self._store.async_restore_area(area_id, present)
+            self._coordinator.async_publish(snapshot, "area", affected or [area_id])
         elif action in ("create", "update"):
-            # No store change: fan out so entities/consumers re-read the merged
-            # registry view (rename, new unannotated area, ...).
-            self._coordinator.async_publish(self._store.snapshot(), "area", [area_id] if area_id else [])
+            self._coordinator.async_publish(self._store.snapshot(), "area", [])
 
     async def _async_handle_floor_event(self, event: Event[EventFloorRegistryUpdatedData]) -> None:
         """Handle a floor registry update; branch on action before floor_id."""

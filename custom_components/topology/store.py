@@ -392,6 +392,41 @@ class TopologyStore:
             self._schedule_save()
         return self.snapshot(), affected
 
+    def area_orphaned(self, area_id: str) -> bool:
+        """Return whether the store holds an orphaned annotation for the area."""
+        area = self._data["areas"].get(area_id)
+        return area is not None and "orphaned_at" in area
+
+    async def async_restore_area(
+        self,
+        area_id: str,
+        present_area_ids: set[str],
+    ) -> tuple[TopologySnapshot, list[str]]:
+        """Clear orphan flags for a returned area and its now-complete edges.
+
+        Called when a removed area reappears in the registry (same area_id): the
+        annotation's ``orphaned_at`` is cleared, and every touching edge whose
+        both endpoints exist again is un-orphaned too — so the undo window does
+        not purge data the user got back.
+        """
+        affected: list[str] = []
+        area = self._data["areas"].get(area_id)
+        if area is not None and "orphaned_at" in area:
+            del area["orphaned_at"]
+            affected.append(area_id)
+        for edge_id, edge in self._data["edges"].items():
+            if (
+                area_id in (edge["area_a"], edge["area_b"])
+                and "orphaned_at" in edge
+                and edge["area_a"] in present_area_ids
+                and edge["area_b"] in present_area_ids
+            ):
+                del edge["orphaned_at"]
+                affected.append(edge_id)
+        if affected:
+            self._schedule_save()
+        return self.snapshot(), affected
+
     async def async_mark_floor_orphaned(self, floor_id: str) -> tuple[TopologySnapshot, list[str]]:
         """Flag a floor override as orphaned; keep the data (72 h window)."""
         floor = self._data["floors"].get(floor_id)
