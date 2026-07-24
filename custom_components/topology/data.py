@@ -417,6 +417,49 @@ class TopologyRuntimeData:
     coordinator: TopologyCoordinator
 
 
+# --- registry-merged entity read model (Phase 3, §7.1) ---------------------
+# Entities may not read the area/floor registry directly (AGENTS.md layering);
+# the coordinator merges the registry into these projections and caches them so
+# entities read only from ``coordinator.derived``.
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class AreaProjection:
+    """Registry-merged, entity-facing view of one area (§7.1)."""
+
+    area_id: str
+    name: str  # registry area name at derive time (display/UI)
+    slug: str  # slugify(name) — the entity-id slug (§4.3), so the platform
+    # never reads the registry (decision D16)
+    exists: bool  # present in the area registry right now
+    orphaned: bool  # store annotation flagged orphaned
+    type: str | None = None
+    environment: Environment | None = None
+    trust: Trust | None = None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class HouseProjection:
+    """The house sensor's inputs — identical to the health counts (§7.2, D6)."""
+
+    occupancy_extent: OccupancyExtent
+    area_count: int
+    annotated_count: int
+    unannotated_areas: tuple[str, ...]
+    perimeter_connection_count: int
+    outdoor_area_count: int
+    floor_count: int
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class TopologyDerived:
+    """Registry-merged projection cached on the coordinator (§7.3)."""
+
+    house: HouseProjection
+    areas: tuple[AreaProjection, ...]
+    live_area_ids: frozenset[str]  # registry areas, non-orphaned
+
+
 # --- converters store-dict <-> dataclass -----------------------------------
 
 

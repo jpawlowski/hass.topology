@@ -1,0 +1,52 @@
+{
+  "entity": {
+    "sensor": {
+      "house": {
+        "default": "mdi:home-search-outline"
+      },
+      "area_type": {
+        "default": "mdi:home-map-marker",
+        "state": {
+          "bedroom": "mdi:bed",
+          "living": "mdi:sofa",
+          "kitchen": "mdi:stove",
+          "dining": "mdi:silverware-fork-knife",
+          "bathroom": "mdi:shower",
+          "hallway": "mdi:door",
+          "office": "mdi:desk",
+          "utility": "mdi:washing-machine",
+          "storage": "mdi:archive",
+          "garage": "mdi:garage",
+          "balcony": "mdi:balcony",
+          "terrace": "mdi:flower",
+          "outdoor": "mdi:tree"
+        }
+      },
+      "area_environment": {
+        "default": "mdi:home-thermometer-outline",
+        "state": {
+          "indoor": "mdi:home",
+          "outdoor": "mdi:tree",
+          "semi_outdoor": "mdi:home-roof"
+        }
+      },
+      "area_trust": {
+        "default": "mdi:shield-home-outline",
+        "state": {
+          "private": "mdi:lock",
+          "shared": "mdi:account-group",
+          "public": "mdi:earth"
+        }
+      }
+    },
+    "binary_sensor": {
+      "perimeter_open": {
+        "default": "mdi:door",
+        "state": {
+          "off": "mdi:door-closed",
+          "on": "mdi:door-open"
+        }
+      }
+    }
+  }
+}

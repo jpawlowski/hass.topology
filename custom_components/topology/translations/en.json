@@ -1,4 +1,39 @@
 {
+  "entity": {
+    "sensor": {
+      "house": {
+        "name": "House"
+      },
+      "area_type": {
+        "name": "Type"
+      },
+      "area_environment": {
+        "name": "Environment",
+        "state": {
+          "indoor": "Indoor",
+          "outdoor": "Outdoor",
+          "semi_outdoor": "Semi-outdoor"
+        }
+      },
+      "area_trust": {
+        "name": "Trust",
+        "state": {
+          "private": "Private",
+          "shared": "Shared",
+          "public": "Public"
+        }
+      }
+    },
+    "binary_sensor": {
+      "perimeter_open": {
+        "name": "Perimeter open",
+        "state": {
+          "off": "Closed",
+          "on": "Open"
+        }
+      }
+    }
+  },
   "config": {
     "step": {
       "user": {
