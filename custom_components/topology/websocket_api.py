@@ -44,7 +44,15 @@ from .data import (
     Trust,
     connection_to_dict,
 )
-from .entity_utils.derivations import annotation_counts, derive_perimeter, effective_level, is_perimeter_edge
+from .entity_utils.derivations import (
+    annotation_counts,
+    connections_facing_outdoor,
+    derive_consistency,
+    derive_perimeter,
+    effective_level,
+    is_perimeter_edge,
+)
+from .entity_utils.graph import neighbors as graph_neighbors, shortest_path
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -100,6 +108,9 @@ def async_register_websocket_api(hass: HomeAssistant) -> None:
     async_register_command(hass, ws_set_exterior_connections)
     async_register_command(hass, ws_set_floor_level)
     async_register_command(hass, ws_update_home_config)
+    async_register_command(hass, ws_neighbors)
+    async_register_command(hass, ws_path)
+    async_register_command(hass, ws_connections_facing_outdoor)
 
 
 # --- helpers ---------------------------------------------------------------
@@ -270,10 +281,11 @@ def _serialize_home_config(snapshot: TopologySnapshot) -> dict[str, Any]:
 
 
 def _build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[str, Any]:
-    """Compute the consistency/health signal (§4.11). Phase-4 lists stay empty.
+    """Compute the consistency/health signal (§4.11); Phase-4 lists now filled.
 
-    The area counts come from the shared ``annotation_counts`` derivation (§7.2)
-    so the household sensor and this signal never drift (decision D6).
+    The area counts and the four graph-consistency lists come from the shared
+    derivations (§7.2, §3) so the household sensor, this signal, and the read
+    hook never drift (decisions D6/D7).
     """
     registry_ids, unannotated_tuple, annotated_count = annotation_counts(snapshot, area_reg)
     unannotated = list(unannotated_tuple)
@@ -285,12 +297,22 @@ def _build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[st
         {"scope": u.scope, "id": u.id, "field": u.field_name, "value": u.value} for u in snapshot.unknown_enum_values
     ]
 
+    consistency = derive_consistency(snapshot, area_reg)
+    isolated_areas = list(consistency.isolated_areas)
+    indoor_areas_without_floor = list(consistency.indoor_areas_without_floor)
+    contradictory_bearings = list(consistency.contradictory_bearings)
+    exterior_on_non_outdoor_side = list(consistency.exterior_on_non_outdoor_side)
+
     lists = [
         unannotated,
         orphaned_edges,
         orphaned_areas,
         orphaned_floors,
         unknown_enum_values,
+        isolated_areas,
+        indoor_areas_without_floor,
+        contradictory_bearings,
+        exterior_on_non_outdoor_side,
     ]
     status = "warning" if any(lists) else "ok"
 
@@ -303,11 +325,11 @@ def _build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[st
         "orphaned_areas": orphaned_areas,
         "orphaned_floors": orphaned_floors,
         "unknown_enum_values": unknown_enum_values,
-        # Phase-4 graph-consistency lists: shape frozen now, filled in Phase 4.
-        "isolated_areas": [],
-        "indoor_areas_without_floor": [],
-        "contradictory_bearings": [],
-        "exterior_on_non_outdoor_side": [],
+        # Phase-4 graph-consistency lists (§3).
+        "isolated_areas": isolated_areas,
+        "indoor_areas_without_floor": indoor_areas_without_floor,
+        "contradictory_bearings": contradictory_bearings,
+        "exterior_on_non_outdoor_side": exterior_on_non_outdoor_side,
     }
 
 
@@ -451,6 +473,96 @@ async def ws_subscribe_updates(
 
     connection.subscriptions[msg_id] = hass.bus.async_listen(EVENT_TOPOLOGY_UPDATED, _forward)
     connection.send_result(msg_id)
+
+
+# --- graph query commands (read, Phase 4 §4) -------------------------------
+
+
+@websocket_command(
+    {
+        vol.Required("type"): "topology/neighbors",
+        vol.Required("area_id"): str,
+    }
+)
+@async_response
+async def ws_neighbors(
+    hass: HomeAssistant,
+    connection: ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return an area's adjacent areas over non-orphaned interior edges (§4.1)."""
+    runtime = _runtime(hass)
+    if runtime is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "No topology entry is loaded")
+        return
+    area_id = msg["area_id"]
+    if ar.async_get(hass).async_get_area(area_id) is None:
+        connection.send_error(msg["id"], ERR_AREA_NOT_FOUND, f"Unknown area {area_id}")
+        return
+    result = [
+        {
+            "area_id": neighbor.area_id,
+            "edge_id": neighbor.edge_id,
+            "axis": neighbor.axis,
+            "is_perimeter": neighbor.is_perimeter,
+            "traversable": neighbor.traversable,
+        }
+        for neighbor in graph_neighbors(runtime.coordinator.derived.graph, area_id)
+    ]
+    connection.send_result(msg["id"], {"area_id": area_id, "neighbors": result})
+
+
+@websocket_command(
+    {
+        vol.Required("type"): "topology/path",
+        vol.Required("from"): str,
+        vol.Required("to"): str,
+        vol.Optional("traversable_only", default=False): bool,
+    }
+)
+@async_response
+async def ws_path(
+    hass: HomeAssistant,
+    connection: ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return the shortest hop path between two areas (§4.2)."""
+    runtime = _runtime(hass)
+    if runtime is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "No topology entry is loaded")
+        return
+    src, dst = msg["from"], msg["to"]
+    area_reg = ar.async_get(hass)
+    for area_id in (src, dst):
+        if area_reg.async_get_area(area_id) is None:
+            connection.send_error(msg["id"], ERR_AREA_NOT_FOUND, f"Unknown area {area_id}")
+            return
+    path = shortest_path(
+        runtime.coordinator.derived.graph,
+        src,
+        dst,
+        traversable_only=msg["traversable_only"],
+    )
+    connection.send_result(
+        msg["id"],
+        {"from": src, "to": dst, "path": path, "hops": (len(path) - 1) if path is not None else -1},
+    )
+
+
+@websocket_command({vol.Required("type"): "topology/connections_facing_outdoor"})
+@async_response
+async def ws_connections_facing_outdoor(
+    hass: HomeAssistant,
+    connection: ActiveConnection,
+    msg: dict[str, Any],
+) -> None:
+    """Return every proven open-air-facing connection (§4.3)."""
+    runtime = _runtime(hass)
+    if runtime is None:
+        connection.send_error(msg["id"], ERR_NOT_LOADED, "No topology entry is loaded")
+        return
+    connections = connections_facing_outdoor(runtime.coordinator.data, ar.async_get(hass))
+    connection.send_result(msg["id"], {"connections": connections})
 
 
 # --- write commands (admin) ------------------------------------------------
