@@ -216,7 +216,7 @@ schema=<vol schema>, supports_response=SupportsResponse.NONE)` (D13).
 
 | Aspect     | Value                                                                                                                                                                                                                                     |
 | ---------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purpose    | Run the one-way, opt-in label projection (master §6): project `environment`/`type`/`trust` onto **area labels** `topology:<value>`. Makes `projection_toggles` effective (D9/D10).                                                        |
+| Purpose    | Run the one-way, opt-in label projection (master §6): project `environment`/`type`/`trust` onto **area labels** `topology:<dim>:<value>` (frozen format, §2.6.1/D10). Makes `projection_toggles` effective (D9/D10).                      |
 | Fields     | `scope?` (default `all`) ∈ `all` \| `environment` \| `type` \| `trust`                                                                                                                                                                    |
 | Schema     | `{Optional("scope", default="all"): vol.In(("all", "environment", "type", "trust"))}`                                                                                                                                                     |
 | Selector   | `scope` → `select:` (`translation_key: projection_scope`)                                                                                                                                                                                 |
@@ -237,23 +237,44 @@ makes toggles effective (setup + `ws_update_home_config`, D9):
     toggles   = {environment: home.project_environment, type: home.project_type, trust: home.project_trust}
     dims      = [d for d in (environment, type, trust)
                  if toggles[d] and (scope == "all" or scope == d)]
-    # desired[area_id] = set of topology:<value> label names the area should carry
+    owned_ids = {lbl.label_id for lbl in label_reg.async_list_labels() if _is_owned(lbl)}   # sentinel test
+    # desired[area_id] = set of topology:<dim>:<value> label NAMES the area should carry
     for each live (non-orphaned) registry area with an annotation:
-        for dim in dims: if annotation.<dim> is not None: desired += f"topology:{value}"
+        for dim in dims: if annotation.<dim> is not None: desired[area_id] += f"topology:{dim}:{value}"
     for each area:
-        owned_now   = {name for name in area.labels-resolved if name.startswith("topology:")}
-        target      = desired[area_id] (only for dims in scope; other dims' owned labels are LEFT as-is)
-        ensure each target label exists (async_get_label_by_name or async_create(name,
-                 description=LABEL_OWNED_DESCRIPTION)); collect its label_id
-        area_reg.async_update(area_id, labels=(area.labels - stale_owned_ids_in_scope) | target_ids)
-    # prune owned labels no longer used by ANY area (only those in scope):
-    for label in label_reg.async_list_labels() if owned(label) and dim(label) in scope and unused: async_delete
+        # Only OUR labels (sentinel-owned) in a scoped dim are ever removed from the area;
+        # a user label — even one literally named topology:… without the sentinel — is left as-is.
+        stale = {lid for lid in area.labels
+                 if lid in owned_ids and _dim_of(label_reg, lid) in dims
+                 and label_reg.async_get_label(lid).name not in desired[area_id]}
+        target_ids = set()
+        for name in desired[area_id]:
+            existing = label_reg.async_get_label_by_name(name)
+            if existing is None:
+                target_ids += label_reg.async_create(name, description=LABEL_OWNED_DESCRIPTION).label_id
+            elif existing.label_id in owned_ids:            # our label — reuse
+                target_ids += existing.label_id
+            else:                                            # SAME NAME, user-owned — never claim it
+                skip this value (log at debug; leave both label and area untouched)
+        area_reg.async_update(area_id, labels=(area.labels - stale) | target_ids)
+    # prune OUR labels (sentinel-owned) in a scoped dim now used by NO area:
+    for lbl in label_reg.async_list_labels()
+        if lbl.label_id in owned_ids and _dim_of(label_reg, lbl) in dims and _unused(lbl): async_delete
 ```
 
-- **Owned test:** `label.description == LABEL_OWNED_DESCRIPTION`
-  (e.g. `"Managed by the Topology integration — do not edit"`). A user label that
-  happens to be named `topology:foo` but lacks the sentinel is never modified or
-  deleted (master §6 "owned + namespaced").
+- **Owned test (`_is_owned`):** `label.description == LABEL_OWNED_DESCRIPTION`
+  (e.g. `"Managed by the Topology integration — do not edit"`). The sentinel — **not**
+  the `topology:` name prefix — is the sole ownership criterion, enforced in **all
+  three** places: the per-area **stale-removal** set, the **target reuse** branch,
+  and the **prune** sweep. A user label that happens to be named `topology:<dim>:<value>`
+  but lacks the sentinel is therefore never removed from an area, reused, or deleted
+  (master §6 "owned + namespaced"; PR-review — Codex).
+- **Name-collision handling (frozen):** if a `topology:<dim>:<value>` name already
+  exists as a **user** label (no sentinel), topology cannot own a second label of the
+  same normalized name and must not touch the user's — so it **skips** projecting that
+  one value (debug-logged), leaving both the user label and the area untouched. The
+  other values still project. (This is the only case where a value silently does not
+  project; it is a name the user has claimed.)
 - **Dimension of a label:** derived from the value — `environment`/`trust` values
   are their own enums; a `type` value is any catalog/custom string. To keep
   scoping unambiguous the label carries its dimension in the name:
@@ -270,17 +291,17 @@ makes toggles effective (setup + `ws_update_home_config`, D9):
 
 ### 2.7 `topology.import_from_core`
 
-| Aspect        | Value                                                                                                                                                                                                      |
-| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Purpose       | One-shot seed of area annotations from Core data (master §1a, §5). Makes `imports_done_at` effective (D9/D11). Never runs automatically except the setup-time opt-in (§2.7.2).                             |
-| Fields        | `source` (required) ∈ `aliases` \| `labels`                                                                                                                                                                |
-| Schema        | `{Required("source"): vol.In(("aliases", "labels"))}`                                                                                                                                                      |
-| Selector      | `source` → `select:` (`translation_key: import_source`)                                                                                                                                                    |
-| Validation    | None beyond the schema — re-running is the **intended** manual path (the reconfigure flow drops the one-shot flags precisely because re-import is a service, Phase-2 §5.2). No `already_done` error (D11). |
-| Executor      | `async_run_import(hass, store, source) -> (snapshot, affected_ids)` (§2.7.1), then `async_mark_import_done(source)` (§7). Fill-empty-only semantics never clobber existing annotations.                    |
-| Store methods | `async_update_area(area_id, updates)` per affected area, then `async_mark_import_done(source)` (new writer, §7).                                                                                           |
-| Publish       | `("import", affected_ids)` (one publish after the batch, only if `affected_ids` non-empty).                                                                                                                |
-| Exceptions    | `not_loaded`                                                                                                                                                                                               |
+| Aspect        | Value                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Purpose       | One-shot seed of area annotations from Core data (master §1a, §5). Makes `imports_done_at` effective (D9/D11). Never runs automatically except the setup-time opt-in (§2.7.2).                                                                                                                                                                                                                                            |
+| Fields        | `source` (required) ∈ `aliases` \| `labels`                                                                                                                                                                                                                                                                                                                                                                               |
+| Schema        | `{Required("source"): vol.In(("aliases", "labels"))}`                                                                                                                                                                                                                                                                                                                                                                     |
+| Selector      | `source` → `select:` (`translation_key: import_source`)                                                                                                                                                                                                                                                                                                                                                                   |
+| Validation    | None beyond the schema — re-running is the **intended** manual path (the reconfigure flow drops the one-shot flags precisely because re-import is a service, Phase-2 §5.2). No `already_done` error (D11).                                                                                                                                                                                                                |
+| Executor      | `async_run_import(hass, store, source) -> (snapshot, affected_ids)` (§2.7.1), then `async_mark_import_done(source)` (§7). Fill-empty-only semantics never clobber existing annotations.                                                                                                                                                                                                                                   |
+| Store methods | `async_update_area(area_id, updates)` per affected area, then `async_mark_import_done(source)` (new writer, §7).                                                                                                                                                                                                                                                                                                          |
+| Publish       | `("import", affected_ids)` — **exactly one publish after `async_mark_import_done`, always**, even when `affected_ids` is empty. The stamp is itself a store mutation, so the runtime snapshot (`coordinator.data`, which the read hook + diagnostics serve) must be refreshed or a no-op import leaves the old `imports_done_at` visible until the next mutation/reload (PR-review — Codex). `affected_ids` may be empty. |
+| Exceptions    | `not_loaded`                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 #### 2.7.1 `async_run_import(hass, store, source)` (frozen)
 
@@ -309,8 +330,12 @@ is true **and** the snapshot's `imports_done_at_<source>` is `None`, run
 it fires once per opt-in and never again (the stamp guards it), exactly the
 Phase-2 config-flow promise ("the import runs when import support lands"). The
 manual `topology.import_from_core` service is the re-run path and ignores the
-stamp (D11). The setup-time run happens pre-seed so the initial snapshot already
-reflects the import.
+stamp (D11). The setup-time run happens **pre-seed**, so the initial `async_seed`
+already reflects both the imported annotations and the stamp — no separate publish
+is needed on the setup path. The **manual service** path, by contrast, runs after
+setup and therefore **must** publish the post-stamp snapshot itself (§2.7 Publish),
+including when the re-run updates no area, so `coordinator.data` reflects the fresh
+`imports_done_at`.
 
 ### 2.8 Making label projection effective (D9)
 
@@ -392,16 +417,16 @@ Read from `entry.runtime_data.coordinator.data` (the snapshot) and `.derived`;
 
 ### 4.2 Field-by-field rule (verbatim from Phase-5 §6)
 
-| Field / source                                                                                                                                                                                                                                                                       | Rule                                                                                               |
-| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------- |
-| `area_id` (areas[], edge endpoints, health lists, `unknown_enum.id`)                                                                                                                                                                                                                 | **pseudonymize** → `area_<n>` via the bundle map (§4.3).                                           |
-| `floor_id` (floors[], health `orphaned_floors`)                                                                                                                                                                                                                                      | **pseudonymize** → `floor_<n>`.                                                                    |
-| `edge_id` (`area_a::area_b`; edges[], health `orphaned_edges`)                                                                                                                                                                                                                       | **rebuild** from the two endpoints' pseudonyms → `area_i::area_j`.                                 |
-| `sensor_entity_id` (connection field, exterior + edge connections)                                                                                                                                                                                                                   | **split**: keep the domain, pseudonymize the object part → `binary_sensor.sensor_<n>` (§4.3).      |
-| `AreaAnnotation.type` (open catalog, free text)                                                                                                                                                                                                                                      | **redact** the value via `async_redact_data(payload, {"type"})` → `**REDACTED**` (run after §4.3). |
-| area / floor **display names**                                                                                                                                                                                                                                                       | **absent** — the export never denormalizes registry names (D7), so there is nothing to redact.     |
-| `passage`, `barrier`, `side`, `glazed`, `perimeter_override`, `inline_trust`, `preset_name`, `environment`, `trust`, `beyond`, `occupancy_extent`, levels, `orphaned_at`/`created_at`/`updated_at`/`imports_done_at` timestamps, `unknown_enum.field`/`value`, all counts and status | **keep** — enumerated/structural/temporal, non-sensitive, carry the debug signal.                  |
-| orphaned entries (`orphaned_at` set)                                                                                                                                                                                                                                                 | **included**, ids pseudonymized like everything else (ADR "Registry-Driven State" wants them).     |
+| Field / source                                                                                                                                                                                                                                                                       | Rule                                                                                                                                                                                       |
+| ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `area_id` (areas[], edge endpoints, health lists, `unknown_enum.id`)                                                                                                                                                                                                                 | **pseudonymize** → `area_<n>` via the bundle map (§4.3).                                                                                                                                   |
+| `floor_id` (floors[], health `orphaned_floors`)                                                                                                                                                                                                                                      | **pseudonymize** → `floor_<n>`.                                                                                                                                                            |
+| `edge_id` (`area_a::area_b`; edges[], health `orphaned_edges`)                                                                                                                                                                                                                       | **rebuild** from the two endpoints' pseudonyms → `area_i::area_j`.                                                                                                                         |
+| `sensor_entity_id` (connection field, exterior + edge connections)                                                                                                                                                                                                                   | **split**: keep the domain, pseudonymize the object part → `binary_sensor.sensor_<n>` (§4.3).                                                                                              |
+| `AreaAnnotation.type` (open catalog, free text)                                                                                                                                                                                                                                      | **redact** the value — `async_redact_data(payload["areas"], {"type"})` scoped to the **areas list only** → `**REDACTED**` (run after §4.3; scoping avoids the `home_config` toggle, §4.3). |
+| area / floor **display names**                                                                                                                                                                                                                                                       | **absent** — the export never denormalizes registry names (D7), so there is nothing to redact.                                                                                             |
+| `passage`, `barrier`, `side`, `glazed`, `perimeter_override`, `inline_trust`, `preset_name`, `environment`, `trust`, `beyond`, `occupancy_extent`, levels, `orphaned_at`/`created_at`/`updated_at`/`imports_done_at` timestamps, `unknown_enum.field`/`value`, all counts and status | **keep** — enumerated/structural/temporal, non-sensitive, carry the debug signal.                                                                                                          |
+| orphaned entries (`orphaned_at` set)                                                                                                                                                                                                                                                 | **included**, ids pseudonymized like everything else (ADR "Registry-Driven State" wants them).                                                                                             |
 
 ### 4.3 The per-bundle pseudonym map (frozen scheme, D8)
 
@@ -426,11 +451,16 @@ class _Pseudonymizer:
   "e.g. … or a salted short hash") if a maintainer wants tokens that are also
   stable across two exports of the same store — not a Phase-6 requirement.
 - **Order of passes (Phase-5 §6, non-negotiable):** (1) build the map and emit the
-  payload with **pseudonymized ids**; (2) run `async_redact_data(payload,
-{"type"})` to redact the free-text `type`. Pseudonymization runs **before**
-  `async_redact_data`, on the id fields; `async_redact_data` never sees a raw id
-  and only touches `type` values (Appendix A.2 — it redacts by key and recurses;
-  no other `"type"` key exists in the payload, so the target is unambiguous).
+  payload with **pseudonymized ids**; (2) redact the free-text annotation `type`.
+  Pseudonymization runs **before** redaction, on the id fields, so `async_redact_data`
+  never sees a raw id. `async_redact_data` redacts **by key and recurses**
+  (Appendix A.2), and the payload holds a **second** `"type"` key —
+  `home_config.projection_toggles.type` (the boolean projection toggle) — so the
+  redaction pass must be **scoped to the areas list**
+  (`async_redact_data(payload["areas"], {"type"})`), never the whole payload, or it
+  would wrongly redact that boolean and break "keep `home_config` verbatim"
+  (PR-review — Codex). Redacting each `area["type"]` explicitly before assembly is
+  the equivalent form; the scoped-list call is the frozen choice.
 - The map is discarded when the bundle is built — nothing persists.
 
 ### 4.4 Phase-6 self-check
@@ -688,7 +718,7 @@ decision; Phase-6 code may be written against it.**
 | D6  | Service-exception placeholders may carry ids?    | **Yes** — `area_not_found {area_id}`, `floor_not_found {floor_id}`, `invalid_sensor {sensor}`, etc.                                                                                                                                                                                                     | **Distinct from Phase-5 D9** (repair cards carry no ids, to avoid PII in the persistent issue registry). A service exception is transient, admin-only, and echoes the id the caller just supplied — not a leak. Ratify the distinction.                                                                                      |
 | D7  | Diagnostics: denormalize registry names?         | **No.** The bundle is ids-only (then pseudonymized); registry display names are never included, so `async_redact_data` handles only the free-text `type`.                                                                                                                                               | **Refines Phase-5 §6**, which left name redaction conditional ("if the export denormalizes them"). Omitting names is the stricter reading of "no name-derived string survives" and removes a whole PII vector. No drift from §6 (names still never surface).                                                                 |
 | D8  | Pseudonym scheme                                 | **Sequential per-bundle counters** in first-seen order (`area_<n>`, `floor_<n>`, `sensor_<n>`; `edge` rebuilt from endpoints). Salted-hash is the noted alternative.                                                                                                                                    | Refines Phase-5 §6's "e.g. `area_1` … or a salted short hash". Counters are deterministic-within-bundle, need no salt state, and are not cross-correlatable. Preserves every adjacency join (§4.3).                                                                                                                          |
-| D9  | Making toggles + imports effective               | Label reconcile at **setup + `ws_update_home_config` + `project_labels`** (reconfigure is covered by its reload); one-shot import at **setup when opted-in and not yet stamped + the manual service**. One new store writer `async_mark_import_done`.                                                   | This is what "die heute inerten `projection_toggles` / `imports_done_at`-Felder werden wirksam" requires. The single new store method stamps an **existing** field — no schema change (§7).                                                                                                                                  |
+| D9  | Making toggles + imports effective               | Label reconcile at **setup + `ws_update_home_config` + `project_labels`** (reconfigure is covered by its reload); one-shot import at **setup when opted-in and not yet stamped + the manual service**. One new store writer `async_mark_import_done`.                                                   | This is what the task's "make the today-inert `projection_toggles` / `imports_done_at` fields effective" requires. The single new store method stamps an **existing** field — no schema change (§7).                                                                                                                         |
 | D10 | `project_labels` gating + label format           | **Toggle-gated** (`scope` narrows, a disabled dimension → `projection_disabled`); labels are **`topology:<dim>:<value>`**, owned via the `description` sentinel; un-projection removes owned labels; **uninstall purge deferred to Phase 8**.                                                           | Master §6 is one-way, opt-in, owned+namespaced. Encoding the dimension in the label name makes per-dimension pruning a pure prefix test and avoids `type=outdoor` vs `environment=outdoor` collisions. Ratify the label format.                                                                                              |
 | D11 | Import heuristics + re-run policy                | **Fill-empty-only.** `aliases` → `type` via `AREA_TYPE_CATALOG` match on `aliases ∪ name` (+ `TYPE_CASCADE`); `labels` → `environment`/`type` via label-name match. The **manual service re-runs** (ignores the stamp); the **setup one-shot** respects the stamp.                                      | Conservative seeding never clobbers user data (master "heuristic … seed"). The reconfigure flow drops the one-shot flags precisely because re-import is a service (Phase-2 §5.2) — so the service must ignore `imports_done_at`. Ratify.                                                                                     |
 | D12 | Any new enum / WS command / entity / derivation? | **None.** Only the two action executors + the one store writer (D9). `SupportsResponse.NONE` for all services (D13).                                                                                                                                                                                    | Consistent with Phases 3–5: additive behaviours, no frozen-contract change. The label registry is a Core registry, not a topology contract surface.                                                                                                                                                                          |
@@ -722,7 +752,7 @@ plan follows the installed package. These supplement the Phase-2..5 appendices.
 
 - `class HomeAssistantError(Exception)` with `__init__(self, *args, translation_domain=None, translation_key=None, translation_placeholders=None)` (verified signature) — so every §3 error is raised as `ServiceValidationError(translation_domain=DOMAIN, translation_key="…", translation_placeholders={…})`.
 - `class ServiceValidationError(HomeAssistantError)` — no own `__init__`; inherits the translation kwargs. MRO: `ServiceValidationError → HomeAssistantError → Exception` (verified).
-- `async_redact_data[_T, _ValueT](data, to_redact: Iterable[Any] | Mapping[Any, Callable[[_ValueT], _ValueT]]) -> _T` and `REDACTED = "**REDACTED**"` (verified). Redacts by **key**, recurses into nested dicts/lists, and **skips `None`/empty**. The `Mapping` form (per-key callable) exists and _could_ pseudonymize, but Phase-5 §6 freezes pseudonymization as a **separate pre-pass**, so §4 uses the plain `Iterable` form `async_redact_data(payload, {"type"})` after the id pass (§4.3).
+- `async_redact_data[_T, _ValueT](data, to_redact: Iterable[Any] | Mapping[Any, Callable[[_ValueT], _ValueT]]) -> _T` and `REDACTED = "**REDACTED**"` (verified). Redacts by **key**, recurses into nested dicts/lists, and **skips `None`/empty**. The `Mapping` form (per-key callable) exists and _could_ pseudonymize, but Phase-5 §6 freezes pseudonymization as a **separate pre-pass**, so §4 uses the plain `Iterable` form scoped to the areas list — `async_redact_data(payload["areas"], {"type"})` — after the id pass (§4.3; scoping avoids the `home_config.projection_toggles.type` boolean).
 
 ### A.3 Selectors + services.yaml — `homeassistant/helpers/selector.py`
 
