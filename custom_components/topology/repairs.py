@@ -35,6 +35,7 @@ from homeassistant.util import dt as dt_util
 from .const import (
     DOMAIN,
     ISSUE_CONTRADICTORY_BEARINGS,
+    ISSUE_DEEP_LINKS,
     ISSUE_EXTERIOR_NON_OUTDOOR,
     ISSUE_INDOOR_WITHOUT_FLOOR,
     ISSUE_ISOLATED_AREAS,
@@ -60,12 +61,18 @@ def _toggle(
     is_fixable: bool = False,
     data: dict[str, str | int | float | None] | None = None,
     placeholders: dict[str, str] | None = None,
+    learn_more_url: str = LEARN_MORE_URL,
 ) -> None:
     """Create the issue when ``active``, else delete it (idempotent, §4.1).
 
     ``async_create_issue`` updates an existing issue in place, so repeated
     publishes never stack cards; ``async_delete_issue`` is a no-op when the
     issue is absent, so the delete branch is always safe to call.
+
+    ``learn_more_url`` defaults to the shared repo URL (Phase 5 behavior); the
+    reconciler overrides it per issue with a panel deep-link (Phase 7 §3, D9).
+    It is a free string field, not part of the frozen issue identity, so this
+    changes no id, severity, placeholder, or fixability.
     """
     if not active:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
@@ -77,7 +84,7 @@ def _toggle(
         is_fixable=is_fixable,
         severity=severity,
         translation_key=issue_id,
-        learn_more_url=LEARN_MORE_URL,
+        learn_more_url=learn_more_url,
         data=data,
         translation_placeholders=placeholders,
     )
@@ -109,6 +116,7 @@ def async_reconcile_issues(
         ISSUE_UNANNOTATED_THRESHOLD,
         active=threshold >= 1 and unannotated_count >= threshold,
         placeholders={"count": str(unannotated_count), "threshold": str(threshold)},
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_UNANNOTATED_THRESHOLD],
     )
 
     # Orphan count follows the same rule as ``build_health`` (``orphaned_at``
@@ -127,6 +135,9 @@ def async_reconcile_issues(
         is_fixable=True,
         data={"entry_id": entry_id} if entry_id is not None else None,
         placeholders={"count": str(orphan_count)},
+        # The orphan card keeps its purge fix-flow; the deep-link is the review
+        # link so a user can inspect the orphans in the panel before purging.
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_ORPHANED_ENTRIES],
     )
 
     consistency = derived.consistency
@@ -135,24 +146,28 @@ def async_reconcile_issues(
         ISSUE_ISOLATED_AREAS,
         active=bool(consistency.isolated_areas),
         placeholders={"count": str(len(consistency.isolated_areas))},
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_ISOLATED_AREAS],
     )
     _toggle(
         hass,
         ISSUE_INDOOR_WITHOUT_FLOOR,
         active=bool(consistency.indoor_areas_without_floor),
         placeholders={"count": str(len(consistency.indoor_areas_without_floor))},
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_INDOOR_WITHOUT_FLOOR],
     )
     _toggle(
         hass,
         ISSUE_CONTRADICTORY_BEARINGS,
         active=bool(consistency.contradictory_bearings),
         placeholders={"count": str(len(consistency.contradictory_bearings))},
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_CONTRADICTORY_BEARINGS],
     )
     _toggle(
         hass,
         ISSUE_EXTERIOR_NON_OUTDOOR,
         active=bool(consistency.exterior_on_non_outdoor_side),
         placeholders={"count": str(len(consistency.exterior_on_non_outdoor_side))},
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_EXTERIOR_NON_OUTDOOR],
     )
 
     # Unknown-enum: the moved Phase-2 logic, byte-identical placeholders
