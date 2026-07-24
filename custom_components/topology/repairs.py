@@ -232,6 +232,6 @@ async def async_create_fix_flow(
     practice only the orphan issue — so the ``ConfirmRepairFlow`` fallback is a
     defensive default that keeps the entry point valid.
     """
-    if issue_id == ISSUE_ORPHANED_ENTRIES and data is not None:
+    if issue_id == ISSUE_ORPHANED_ENTRIES and data and data.get("entry_id") is not None:
         return TopologyOrphanPurgeRepairFlow(entry_id=str(data["entry_id"]))
     return ConfirmRepairFlow()

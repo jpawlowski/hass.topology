@@ -45,6 +45,10 @@ if TYPE_CHECKING:
 
     from homeassistant.core import HomeAssistant
 
+# Resolve the translations file relative to this test, not the process cwd, so
+# the suite is robust to being run from any directory (PR review).
+_TRANSLATIONS_PATH = Path(__file__).parent.parent / "custom_components" / "topology" / "translations" / "en.json"
+
 _ALL_ISSUE_IDS = (
     ISSUE_STORE_FUTURE_VERSION,
     ISSUE_UNKNOWN_ENUM,
@@ -395,9 +399,11 @@ async def test_create_fix_flow_routing(hass: HomeAssistant) -> None:
     orphan_flow = await async_create_fix_flow(hass, ISSUE_ORPHANED_ENTRIES, {"entry_id": "abc"})
     assert isinstance(orphan_flow, TopologyOrphanPurgeRepairFlow)
 
-    # Any other id (or the orphan id without data) falls back to the plain confirm flow.
+    # Any other id, or the orphan id with missing/empty data, falls back to the
+    # plain confirm flow without raising (a malformed {} must not KeyError).
     assert isinstance(await async_create_fix_flow(hass, ISSUE_ISOLATED_AREAS, None), ConfirmRepairFlow)
     assert isinstance(await async_create_fix_flow(hass, ISSUE_ORPHANED_ENTRIES, None), ConfirmRepairFlow)
+    assert isinstance(await async_create_fix_flow(hass, ISSUE_ORPHANED_ENTRIES, {}), ConfirmRepairFlow)
 
 
 async def test_fix_flow_missing_entry_safe(hass: HomeAssistant) -> None:
@@ -480,8 +486,7 @@ async def test_issue_placeholders_no_area_ids(
 
 def test_issue_translations_present() -> None:
     """Every created issue_id has a translation entry; the fixable one has fix_flow."""
-    path = Path("custom_components/topology/translations/en.json")
-    issues = json.loads(path.read_text(encoding="utf-8"))["issues"]
+    issues = json.loads(_TRANSLATIONS_PATH.read_text(encoding="utf-8"))["issues"]
 
     for issue_id in _ALL_ISSUE_IDS:
         assert issue_id in issues, issue_id
@@ -502,8 +507,7 @@ def test_issue_translations_present() -> None:
 
 def test_hassfest_issue_translations() -> None:
     """Every issue matches hassfest's shape: title + exactly one of description/fix_flow."""
-    path = Path("custom_components/topology/translations/en.json")
-    issues = json.loads(path.read_text(encoding="utf-8"))["issues"]
+    issues = json.loads(_TRANSLATIONS_PATH.read_text(encoding="utf-8"))["issues"]
 
     for issue_id, entry in issues.items():
         assert "title" in entry, issue_id
