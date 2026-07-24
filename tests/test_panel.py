@@ -43,8 +43,16 @@ def _build_manifest() -> dict[str, str]:
     return json.loads((_PANEL_DIR / PANEL_BUILD_MANIFEST).read_text(encoding="utf-8"))
 
 
-def test_read_build_manifest_fallback(tmp_path: Path, monkeypatch: Any) -> None:
-    """A missing/corrupt build.json degrades to the fixed module + empty hash (§2.1)."""
+def test_read_build_manifest_fallback_missing(tmp_path: Path, monkeypatch: Any) -> None:
+    """A missing build.json degrades to the fixed module + empty hash (§2.1)."""
+    monkeypatch.setattr(topology, "_panel_dir", lambda: tmp_path)
+    manifest = topology._read_build_manifest()  # noqa: SLF001 — testing the private fallback
+    assert manifest == {"module": PANEL_MODULE, "hash": ""}
+
+
+def test_read_build_manifest_fallback_corrupt(tmp_path: Path, monkeypatch: Any) -> None:
+    """A corrupt build.json (invalid JSON) degrades to the same fallback (§2.1)."""
+    (tmp_path / PANEL_BUILD_MANIFEST).write_text("{ not json", encoding="utf-8")
     monkeypatch.setattr(topology, "_panel_dir", lambda: tmp_path)
     manifest = topology._read_build_manifest()  # noqa: SLF001 — testing the private fallback
     assert manifest == {"module": PANEL_MODULE, "hash": ""}
