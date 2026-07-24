@@ -1,12 +1,16 @@
 # Topology — Phase 7 Implementation Plan
 
 **Status:** Implementation plan (frozen artifacts per PLAN-topology.md §10, gate
-"Before Phase 7 (panel)") · Last updated 2026-07-24 · **Decisions D1–D15 below
-are RECOMMENDED, not yet ratified — the maintainer must ratify §9 before code is
-written. D14 (config-flow slimming) additionally touches Phase-2 frozen
-artifacts and is called out for separate ratification.** The sections above §9
-already assume the recommended option (except D14's Phase-2 half, which is
-explicitly deferred).
+"Before Phase 7 (panel)") · Last updated 2026-07-24 · **Decisions D1–D15
+ratified by the maintainer 2026-07-24 — cleared for implementation.** Two
+carve-outs survive ratification as **pre-implementation tasks, not open
+choices:** **D9** still requires the one factual check of how
+`home-assistant/frontend` renders a repair-card `learn_more_url` (§3.3) before
+the deep-link form is locked — ratification approves the approach + the id-stable
+fallback chain, not the unverified rendering; and **D14**'s config-flow
+_slimming_ half is ratified in direction but must be sequenced as a **separate
+Phase-2 follow-up** (field removal + `entry.data`→store migration, with a
+deprecation window), while its `config_panel_domain` half is Phase-7 work.
 
 **Scope:** Phase 7 (**the v1 custom panel + the frontend build/delivery
 pipeline + repair-card deep-links + the WS-auth-model consolidation**) — the
@@ -87,9 +91,10 @@ new WS command is needed** (D7 — answer: no), **panel admin-gating + audience*
 (D8), **deep-link routing** (D9), **frontend test framework** (D10), **frontend
 i18n** (D11). Three further reconsiderations raised during review are added:
 **config surface — panel vs. flow** (D14, the only one that touches a Phase-2
-frozen artifact and is deferred for separate ratification), and **the non-admin
-read-only map card** (D15). Ratify §9 first; every section above it already
-assumes the recommended option (except D14's Phase-2 half).
+frozen artifact and is deferred to a separate Phase-2 follow-up), and **the
+non-admin read-only map card** (D15). §9 is now **ratified** (2026-07-24); every
+section above it is the binding decision, subject only to D9's frontend check and
+D14's Phase-2 sequencing.
 
 ---
 
@@ -660,8 +665,11 @@ the bundle p2 serves; p3 (deep-links) depends only on p1 and can land first.
 
 Every place the design plan leaves the frontend toolchain open, or where this
 plan makes a call the §10 gate delegated, with a recommended, minimal-invasive
-option. **The sections above assume the recommended option. Ratify §9 before code
-is written.** Nothing here breaks the Phase-2 WS contract or any Phase-3–6
+option. **All fifteen decisions below were ratified by the maintainer on
+2026-07-24 — every "Recommended option" is now the binding decision and Phase-7
+code may be written against it**, subject to the two carve-outs noted in the
+Status header (D9's frontend-rendering check and D14's separate Phase-2
+sequencing). Nothing here breaks the Phase-2 WS contract or any Phase-3–6
 artifact; the panel is a pure consumer and the only contract-adjacent edits are
 the additive manifest `dependencies` (D6) and the non-identity `learn_more_url`
 values (D9).
