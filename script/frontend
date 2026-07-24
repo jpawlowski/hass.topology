@@ -1,0 +1,32 @@
+#!/bin/bash
+
+# script/frontend: Build the topology custom panel (Phase 7)
+#
+# Runs the esbuild production build, emitting a single self-contained ESM bundle
+# and a content-hash build.json into custom_components/topology/panel/ — the only
+# frontend artifact Home Assistant serves. Regenerate this whenever the frontend/
+# source changes; the committed bundle must match a fresh build (CI freshness
+# guard).
+#
+# Usage:
+#   ./script/frontend
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+# shellcheck source=script/.lib/output.sh
+source "$SCRIPT_DIR/.lib/output.sh"
+
+if [[ ! -d node_modules/esbuild || ! -d node_modules/lit ]]; then
+    die "Node.js dependencies not installed. Run: npm install"
+fi
+
+run_hook "frontend" "pre"
+
+log_header "Building topology panel (esbuild)"
+npm run frontend
+
+run_hook "frontend" "post"
+log_success "Frontend build completed"

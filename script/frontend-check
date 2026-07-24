@@ -1,0 +1,30 @@
+#!/bin/bash
+
+# script/frontend-check: Type-check and unit-test the topology panel (Phase 7)
+#
+# Runs `tsc --noEmit` (strict type checking, no emit) and `vitest run` over the
+# framework-agnostic logic modules. Mirrors the check-only Python scripts — no
+# file writes. E2E is deferred (decision D10).
+#
+# Usage:
+#   ./script/frontend-check
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+# shellcheck source=script/.lib/output.sh
+source "$SCRIPT_DIR/.lib/output.sh"
+
+if [[ ! -d node_modules/typescript || ! -d node_modules/vitest ]]; then
+    die "Node.js dependencies not installed. Run: npm install"
+fi
+
+run_hook "frontend-check" "pre"
+
+log_header "Checking panel types + tests (tsc + vitest)"
+npm run frontend-check
+
+run_hook "frontend-check" "post"
+log_success "Frontend check completed"
