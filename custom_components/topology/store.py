@@ -463,6 +463,20 @@ class TopologyStore:
             self._schedule_save()
         return self.snapshot(), purged
 
+    # --- one-shot imports (Phase 6, PLAN-topology-phase6.md §2.7, §7) -------
+
+    async def async_mark_import_done(self, source: str) -> TopologySnapshot:
+        """Stamp the one-shot import timestamp for a source (§2.7, §7, D9).
+
+        The only new mutation Phase 6 adds; it writes the existing
+        ``home_config.imports_done_at[source]`` field (``aliases`` or ``labels``)
+        with the current UTC timestamp, guarding the setup-time one-shot import.
+        """
+        imports = self._home_config()["imports_done_at"]
+        imports[source] = _utcnow_iso()  # type: ignore[literal-required]
+        self._schedule_save()
+        return self.snapshot()
+
     async def async_save_now(self) -> None:
         """Force any pending debounced write to disk immediately."""
         await self._store.async_save(self._data)
