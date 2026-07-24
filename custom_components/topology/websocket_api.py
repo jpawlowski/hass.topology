@@ -53,6 +53,7 @@ from .entity_utils.derivations import (
     is_perimeter_edge,
 )
 from .entity_utils.graph import neighbors as graph_neighbors, shortest_path
+from .service_actions.label_projection import async_reconcile_labels
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -886,6 +887,10 @@ async def ws_update_home_config(
     # (async_setup_entry) does not overwrite the panel edit with stale flow
     # state (D5: this command mirrors the reconfigure flow).
     _sync_home_config_to_entry(hass, runtime, occupancy_extent, toggles, threshold)
+
+    # The panel path does not reload, so reconcile labels here to make a toggle
+    # flip effective immediately (§2.8 site 3).
+    await async_reconcile_labels(hass, runtime.store.snapshot())
 
     runtime.coordinator.async_publish(runtime.store.snapshot(), "home_config", [])
     connection.send_result(msg["id"], _serialize_home_config(runtime.store.snapshot()))
