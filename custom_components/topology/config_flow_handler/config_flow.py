@@ -101,7 +101,7 @@ class TopologyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             await store.async_load()
         except StoreFutureVersionError:
             return "store_future_version"
-        except StoreCorruptError, TopologyStoreError:
+        except (StoreCorruptError, TopologyStoreError):
             errors["base"] = "store_corrupt"
         return None
 
