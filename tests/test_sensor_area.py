@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from custom_components.topology.const import STORAGE_KEY
+from custom_components.topology.store import default_store_data
 from homeassistant.const import EntityCategory
 from homeassistant.helpers import area_registry as ar, entity_registry as er
 
@@ -225,6 +229,34 @@ async def test_area_refreshes_on_mutation(
     )
     await hass.async_block_till_done()
     assert hass.states.get("sensor.topology_flur_trust").state == "private"
+
+
+async def test_orphaned_area_sensors_restored_on_setup(
+    hass: HomeAssistant,
+    mock_config_entry: MockConfigEntry,
+) -> None:
+    """A restart within the orphan window re-creates the removed area's sensors (unavailable)."""
+    # Write a store file directly: TopologyStore reads the raw envelope, so this
+    # survives setup even though the test harness mocks HA storage in memory.
+    data = default_store_data()
+    data["areas"]["ghost"] = {
+        "type": "bedroom",
+        "orphaned_at": "2026-07-24T00:00:00+00:00",
+        "updated_at": "2026-07-24T00:00:00+00:00",
+    }
+    envelope = {"version": 1, "minor_version": 1, "key": STORAGE_KEY, "data": data}
+    path = Path(hass.config.path(".storage", STORAGE_KEY))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+
+    registry = er.async_get(hass)
+    for dim in ("type", "environment", "trust"):
+        unique_id = f"{mock_config_entry.entry_id}_ghost_{dim}"
+        assert registry.async_get_entity_id("sensor", "topology", unique_id) is not None, dim
 
 
 async def test_area_has_entity_name(

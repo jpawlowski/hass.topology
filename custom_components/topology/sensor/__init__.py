@@ -40,11 +40,15 @@ async def async_setup_entry(
     coordinator = entry.runtime_data.coordinator
 
     known: set[str] = set()
-    projections = {projection.area_id: projection for projection in coordinator.derived.areas}
     entities: list[TopologyHouseSensor | TopologyAreaSensor] = [TopologyHouseSensor(coordinator)]
-    for area_id in coordinator.derived.live_area_ids:
-        entities.extend(_area_triple(coordinator, projections[area_id]))
-        known.add(area_id)
+    # Instantiate a triple for every projection, not just live_area_ids: an area
+    # orphaned when HA restarts within the 72 h undo window is still in
+    # derived.areas but excluded from live_area_ids, and its previously enabled
+    # sensors must come back as ``unavailable`` rather than vanish. Their
+    # ``available`` property keeps them unavailable until the area returns.
+    for projection in coordinator.derived.areas:
+        entities.extend(_area_triple(coordinator, projection))
+        known.add(projection.area_id)
     async_add_entities(entities)
 
     @callback
