@@ -51,6 +51,9 @@ filterwarnings = [
     "error",
     # Ignore specific warnings from third-party libraries as needed
     # "ignore:.*custom_components.* is using deprecated.*:DeprecationWarning",
+    # HA's http component sets string app keys; newer aiohttp warns. This is
+    # internal to Home Assistant's test harness setup, not our code.
+    "ignore::aiohttp.web_exceptions.NotAppKeyWarning",
 ]
 
 [tool.coverage.run]

@@ -2,152 +2,65 @@
   "config": {
     "step": {
       "user": {
-        "description": "If you need help with the configuration have a look at the [documentation]({documentation_url}).",
+        "title": "Topology",
+        "description": "Set up the topology helper. These home-level settings can be changed later from the reconfigure flow or the topology panel.",
         "data": {
-          "username": "Username",
-          "password": "Password"
+          "occupancy_extent": "Occupancy extent",
+          "import_aliases": "Import area aliases",
+          "import_labels": "Import area labels",
+          "project_environment": "Project environment onto areas",
+          "project_type": "Project type onto areas",
+          "project_trust": "Project trust onto areas",
+          "unannotated_repair_threshold": "Unannotated-area repair threshold"
+        },
+        "data_description": {
+          "occupancy_extent": "Whether all areas form a standalone property or a unit inside a larger building. This sets the default for unmodeled outer walls.",
+          "import_aliases": "Seed area annotations from existing area aliases once. The import runs when import support lands (a later release); until then the opt-in is only recorded.",
+          "import_labels": "Seed area annotations from existing area labels once. The import runs when import support lands (a later release); until then the opt-in is only recorded.",
+          "unannotated_repair_threshold": "Number of unannotated areas at which a repair suggestion is raised."
         }
       },
       "reconfigure": {
-        "description": "Update the credentials for this integration.",
+        "title": "Reconfigure Topology",
+        "description": "Update the home-level topology settings.",
         "data": {
-          "username": "Username",
-          "password": "Password"
-        }
-      },
-      "reauth_confirm": {
-        "title": "Reauthenticate Integration",
-        "description": "The credentials for {username} are no longer valid. Please provide updated credentials to restore access.",
-        "data": {
-          "username": "Username",
-          "password": "Password"
+          "occupancy_extent": "Occupancy extent",
+          "project_environment": "Project environment onto areas",
+          "project_type": "Project type onto areas",
+          "project_trust": "Project trust onto areas",
+          "unannotated_repair_threshold": "Unannotated-area repair threshold"
+        },
+        "data_description": {
+          "occupancy_extent": "Whether all areas form a standalone property or a unit inside a larger building. This sets the default for unmodeled outer walls.",
+          "unannotated_repair_threshold": "Number of unannotated areas at which a repair suggestion is raised."
         }
       }
     },
     "error": {
-      "auth": "Username/Password is wrong.",
-      "connection": "Unable to connect to the server.",
-      "unknown": "Unknown error occurred."
+      "area_registry_unavailable": "The area registry could not be read. Please try again.",
+      "store_corrupt": "The topology store could not be read. It may be corrupt; restore from a backup and try again."
     },
     "abort": {
-      "already_configured": "This entry is already configured."
+      "store_future_version": "The topology store was written by a newer version of the integration and cannot be read after a downgrade.",
+      "reconfigure_successful": "Reconfiguration was successful."
     }
   },
-  "options": {
-    "step": {
-      "init": {
-        "title": "Configure Integration Options",
-        "description": "Customize how this integration operates.",
-        "data": {
-          "update_interval_hours": "Update interval (hours)",
-          "enable_debugging": "Enable debug logging",
-          "custom_icon": "Custom icon (optional)"
-        },
-        "data_description": {
-          "update_interval_hours": "How often to refresh data from the API (0.25 to 24 hours)",
-          "enable_debugging": "Enable detailed debug logging for troubleshooting",
-          "custom_icon": "Override the default icon for entities (optional)"
-        }
-      }
-    }
-  },
-  "exceptions": {
-    "authentication_failed": {
-      "message": "Authentication failed during data update."
-    },
-    "update_failed": {
-      "message": "Failed to update data from the server."
-    },
-    "switch_turn_on_failed": {
-      "message": "Failed to turn on the switch."
-    },
-    "switch_turn_off_failed": {
-      "message": "Failed to turn off the switch."
-    },
-    "number_set_failed": {
-      "message": "Failed to set the target value."
-    }
-  },
-  "entity": {
-    "sensor": {
-      "air_quality_index": {
-        "name": "Air Quality Index"
-      },
-      "pm25": {
-        "name": "PM2.5"
-      },
-      "filter_life": {
-        "name": "Filter Life Remaining"
-      },
-      "runtime": {
-        "name": "Total Runtime"
-      }
-    },
-    "binary_sensor": {
-      "api_connectivity": {
-        "name": "API Connection"
-      },
-      "filter_replacement": {
-        "name": "Filter Replacement Needed"
-      }
-    },
-    "switch": {
-      "child_lock": {
-        "name": "Child Lock"
-      },
-      "led_display": {
-        "name": "LED Display"
-      }
-    },
-    "select": {
-      "fan_speed": {
-        "name": "Fan Speed",
-        "state": {
-          "low": "Low",
-          "medium": "Medium",
-          "high": "High",
-          "auto": "Auto"
-        }
-      }
-    },
-    "number": {
-      "target_humidity": {
-        "name": "Target Humidity"
-      }
-    },
-    "button": {
-      "reset_filter": {
-        "name": "Reset Filter Timer"
-      }
-    },
-    "fan": {
-      "air_purifier": {
-        "name": "Air Purifier"
+  "selector": {
+    "occupancy_extent": {
+      "options": {
+        "whole_property": "Whole property (standalone home)",
+        "unit_within_building": "Unit within a building"
       }
     }
   },
   "issues": {
-    "deprecated_api_endpoint": {
-      "title": "Deprecated API Endpoint",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Update API Endpoint",
-            "description": "Your device is using API version {api_version} which is deprecated. Please update to v2 for continued support and new features.\n\nClick Submit to update your device to use the new API endpoint (v2). This will reload the integration."
-          }
-        }
-      }
+    "store_future_version": {
+      "title": "Topology store is from a newer version",
+      "description": "The topology store on disk is schema version {version}, which is newer than this installation supports. Topology cannot load until you upgrade the integration again or restore a compatible backup."
     },
-    "missing_configuration": {
-      "title": "Missing Configuration",
-      "fix_flow": {
-        "step": {
-          "init": {
-            "title": "Acknowledge Configuration Issue",
-            "description": "Some configuration options are missing or invalid. Please reconfigure the integration to ensure proper operation.\n\nClick Submit to acknowledge this issue. You may need to reconfigure the integration if problems persist."
-          }
-        }
-      }
+    "unknown_enum_after_downgrade": {
+      "title": "Topology store has unrecognized values",
+      "description": "The topology store contains at least one value this version does not recognize (for example {field} = \"{value}\"), likely from a newer release. {count} such value(s) are shown as unknown and are preserved untouched; upgrade the integration again to restore them."
     }
   }
 }

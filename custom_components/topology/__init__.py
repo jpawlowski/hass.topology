@@ -1,36 +1,39 @@
 """
-Custom integration to integrate topology with Home Assistant.
+Custom integration to model the topology of a Home Assistant home.
 
-This integration demonstrates best practices for:
-- Config flow setup (user, reconfigure, reauth)
-- DataUpdateCoordinator pattern for efficient data fetching
-- Multiple platform types (sensor, binary_sensor, switch, select, number)
-- Service registration and handling
-- Device and entity management
-- Proper error handling and recovery
+Topology is a registry-driven, calculated helper: it annotates the area and
+floor registries with a spatial model (types, environment, trust, adjacency)
+and serves that model to consumers over a WebSocket contract. It talks to no
+external service.
+
+Phase 2 wires the store, coordinator snapshot, registry watcher, and the
+WebSocket API. The entity platforms stay empty until Phase 3.
 
 For more details about this integration, please refer to:
 https://github.com/jpawlowski/hass.topology
-
-For integration development guidelines:
-https://developers.home-assistant.io/docs/creating_integration_manifest
 """
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME, Platform
-from homeassistant.helpers.aiohttp_client import async_get_clientsession
-import homeassistant.helpers.config_validation as cv
-from homeassistant.loader import async_get_loaded_integration
+from homeassistant.const import Platform
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.helpers import config_validation as cv, issue_registry as ir
 
-from .api import TopologyApiClient
-from .const import DOMAIN, LOGGER
-from .coordinator import TopologyDataUpdateCoordinator
-from .data import TopologyData
+from .const import (
+    CONF_OCCUPANCY_EXTENT,
+    CONF_PROJECT_ENVIRONMENT,
+    CONF_PROJECT_TRUST,
+    CONF_PROJECT_TYPE,
+    CONF_UNANNOTATED_REPAIR_THRESHOLD,
+    DOMAIN,
+)
+from .coordinator import TopologyCoordinator, TopologyRegistryWatcher
+from .data import TopologyRuntimeData
 from .service_actions import async_setup_services
+from .store import StoreCorruptError, StoreFutureVersionError, TopologyStore, TopologyStoreError
+from .websocket_api import async_register_websocket_api
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -38,42 +41,26 @@ if TYPE_CHECKING:
     from .data import TopologyConfigEntry
 
 PLATFORMS: list[Platform] = [
-    Platform.BINARY_SENSOR,
-    Platform.BUTTON,
-    Platform.FAN,
-    Platform.NUMBER,
-    Platform.SELECT,
     Platform.SENSOR,
-    Platform.SWITCH,
+    Platform.BINARY_SENSOR,
 ]
 
-# This integration is configured via config entries only
+# Topology is configured via config entries only (no YAML configuration).
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+
+_STORE_FUTURE_VERSION_ISSUE = "store_future_version"
+_LEARN_MORE_URL = "https://github.com/jpawlowski/hass.topology"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
-    """
-    Set up the integration.
+    """Set up the integration.
 
-    This is called once at Home Assistant startup to register service actions.
-    Service actions must be registered here (not in async_setup_entry) to ensure:
-    - Service action validation works correctly
-    - Service actions are available even without config entries
-    - Helpful error messages are provided
-
-    This is a Silver Quality Scale requirement.
-
-    Args:
-        hass: The Home Assistant instance.
-        config: The Home Assistant configuration.
-
-    Returns:
-        True if setup was successful.
-
-    For more information:
-    https://developers.home-assistant.io/docs/dev_101_services
+    Called once at Home Assistant startup. WebSocket commands (cluster e) and
+    (from Phase 6) service actions are registered here — not per config entry —
+    so they exist even before an entry is loaded (§4).
     """
     await async_setup_services(hass)
+    async_register_websocket_api(hass)
     return True
 
 
@@ -81,66 +68,57 @@ async def async_setup_entry(
     hass: HomeAssistant,
     entry: TopologyConfigEntry,
 ) -> bool:
+    """Set up topology from a config entry.
+
+    Runs the test-before-setup checks (§5.3): a transient I/O failure raises
+    ``ConfigEntryNotReady``; corrupt JSON raises ``ConfigEntryError``; a future
+    store version raises ``ConfigEntryError`` and creates a repair issue.
     """
-    Set up this integration using UI.
+    store = TopologyStore(hass)
+    try:
+        await store.async_load()
+    except StoreFutureVersionError as err:
+        ir.async_create_issue(
+            hass,
+            DOMAIN,
+            _STORE_FUTURE_VERSION_ISSUE,
+            is_fixable=False,
+            severity=ir.IssueSeverity.ERROR,
+            translation_key=_STORE_FUTURE_VERSION_ISSUE,
+            learn_more_url=_LEARN_MORE_URL,
+            translation_placeholders={"version": str(err.version)},
+        )
+        raise ConfigEntryError("topology store was written by a newer version") from err
+    except StoreCorruptError as err:
+        raise ConfigEntryError("topology store is corrupt") from err
+    except TopologyStoreError as err:  # transient I/O error
+        raise ConfigEntryNotReady("topology store could not be read") from err
 
-    This is called when a config entry is loaded. It:
-    1. Creates the API client with credentials from the config entry
-    2. Initializes the DataUpdateCoordinator for data fetching
-    3. Performs the first data refresh
-    4. Sets up all platforms (sensors, switches, etc.)
-    5. Registers services
-    6. Sets up reload listener for config changes
+    # A successful load clears any stale future-version repair.
+    ir.async_delete_issue(hass, DOMAIN, _STORE_FUTURE_VERSION_ISSUE)
 
-    Data flow in this integration:
-    1. User enters username/password in config flow (config_flow.py)
-    2. Credentials stored in entry.data[CONF_USERNAME/CONF_PASSWORD]
-    3. API Client initialized with credentials (api/client.py)
-    4. Coordinator fetches data using authenticated client (coordinator/base.py)
-    5. Entities access data via self.coordinator.data (sensor/, binary_sensor/, etc.)
+    coordinator = TopologyCoordinator(hass, entry, store)
 
-    This pattern ensures credentials from setup flow are used throughout
-    the integration's lifecycle for API communication.
-
-    Args:
-        hass: The Home Assistant instance.
-        entry: The config entry being set up.
-
-    Returns:
-        True if setup was successful.
-
-    For more information:
-    https://developers.home-assistant.io/docs/config_entries_index/#setting-up-an-entry
-    """
-    # Initialize client first
-    client = TopologyApiClient(
-        username=entry.data[CONF_USERNAME],  # From config flow setup
-        password=entry.data[CONF_PASSWORD],  # From config flow setup
-        session=async_get_clientsession(hass),
+    # Sync the config-entry fields into the store's home_config (§5): the store
+    # is what the read hook serves; entry data is the flow's own state.
+    data = entry.data
+    await store.async_apply_home_config(
+        occupancy_extent=data.get(CONF_OCCUPANCY_EXTENT),
+        project_environment=data.get(CONF_PROJECT_ENVIRONMENT),
+        project_type=data.get(CONF_PROJECT_TYPE),
+        project_trust=data.get(CONF_PROJECT_TRUST),
+        unannotated_repair_threshold=data.get(CONF_UNANNOTATED_REPAIR_THRESHOLD),
     )
+    coordinator.async_seed(store.snapshot())
 
-    # Initialize coordinator with config_entry
-    coordinator = TopologyDataUpdateCoordinator(
-        hass=hass,
-        logger=LOGGER,
-        name=DOMAIN,
-        config_entry=entry,
-        update_interval=timedelta(hours=1),
-        always_update=False,  # Only update entities when data actually changes
-    )
+    entry.runtime_data = TopologyRuntimeData(store=store, coordinator=coordinator)
 
-    # Store runtime data
-    entry.runtime_data = TopologyData(
-        client=client,
-        integration=async_get_loaded_integration(hass, entry.domain),
-        coordinator=coordinator,
-    )
-
-    # https://developers.home-assistant.io/docs/integration_fetching_data#coordinated-single-api-poll-for-data-for-all-entities
-    await coordinator.async_config_entry_first_refresh()
+    watcher = TopologyRegistryWatcher(hass, coordinator)
+    await watcher.async_startup_purge()
+    watcher.async_start()
+    entry.async_on_unload(watcher.async_stop)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    entry.async_on_unload(entry.add_update_listener(async_reload_entry))
 
     return True
 
@@ -149,25 +127,7 @@ async def async_unload_entry(
     hass: HomeAssistant,
     entry: TopologyConfigEntry,
 ) -> bool:
-    """
-    Unload a config entry.
-
-    This is called when the integration is being removed or reloaded.
-    It ensures proper cleanup of:
-    - All platform entities
-    - Registered services
-    - Update listeners
-
-    Args:
-        hass: The Home Assistant instance.
-        entry: The config entry being unloaded.
-
-    Returns:
-        True if unload was successful.
-
-    For more information:
-    https://developers.home-assistant.io/docs/config_entries_index/#unloading-entries
-    """
+    """Unload a config entry and its platforms (registry listeners via on_unload)."""
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
 
@@ -175,17 +135,5 @@ async def async_reload_entry(
     hass: HomeAssistant,
     entry: TopologyConfigEntry,
 ) -> None:
-    """
-    Reload config entry.
-
-    This is called when the integration configuration or options have changed.
-    It unloads and then reloads the integration with the new configuration.
-
-    Args:
-        hass: The Home Assistant instance.
-        entry: The config entry being reloaded.
-
-    For more information:
-    https://developers.home-assistant.io/docs/config_entries_index/#reloading-entries
-    """
+    """Reload the config entry."""
     await hass.config_entries.async_reload(entry.entry_id)

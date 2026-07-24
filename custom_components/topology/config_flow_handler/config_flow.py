@@ -1,10 +1,11 @@
 """
-Config flow for topology.
+Config flow for topology (PLAN-topology-phase2.md §5).
 
-This module implements the main configuration flow including:
-- Initial user setup
-- Reconfiguration of existing entries
-- Reauthentication flow
+Topology is a singleton helper (manifest ``single_config_entry: true``), so Core
+aborts a second flow with ``single_instance_allowed`` before this code runs. The
+flow collects the home-level configuration (occupancy extent, projection
+toggles, unannotated-repair threshold, and the one-shot import opt-ins) and runs
+the test-before-configure checks on submit.
 
 For more information:
 https://developers.home-assistant.io/docs/config_entries_config_flow_handler
@@ -14,232 +15,103 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from slugify import slugify
-
-from custom_components.topology.config_flow_handler.schemas import (
-    get_reauth_schema,
-    get_reconfigure_schema,
-    get_user_schema,
+from custom_components.topology.config_flow_handler.schemas.config import get_reconfigure_schema, get_user_schema
+from custom_components.topology.const import CONF_UNANNOTATED_REPAIR_THRESHOLD, DOMAIN, STORAGE_VERSION
+from custom_components.topology.store import (
+    StoreCorruptError,
+    StoreFutureVersionError,
+    TopologyStore,
+    TopologyStoreError,
 )
-from custom_components.topology.config_flow_handler.validators import validate_credentials
-from custom_components.topology.const import DOMAIN, LOGGER
 from homeassistant import config_entries
-from homeassistant.const import CONF_PASSWORD, CONF_USERNAME
-from homeassistant.loader import async_get_loaded_integration
 
 if TYPE_CHECKING:
-    from custom_components.topology.config_flow_handler.options_flow import TopologyOptionsFlow
+    from homeassistant.helpers.area_registry import AreaRegistry
 
-# Map exception types to error keys for user-facing messages
-ERROR_MAP = {
-    "TopologyApiClientAuthenticationError": "auth",
-    "TopologyApiClientCommunicationError": "connection",
-}
+CONFIG_ENTRY_UNIQUE_ID = DOMAIN
 
 
 class TopologyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
-    """
-    Handle a config flow for topology.
+    """Handle the config flow for topology (single instance)."""
 
-    This class manages the configuration flow for the integration, including
-    initial setup, reconfiguration, and reauthentication.
-
-    Supported flows:
-    - user: Initial setup via UI
-    - reconfigure: Update existing configuration
-    - reauth: Handle expired credentials
-
-    For more details:
-    https://developers.home-assistant.io/docs/config_entries_config_flow_handler
-    """
-
-    VERSION = 1
-
-    @staticmethod
-    def async_get_options_flow(
-        config_entry: config_entries.ConfigEntry,
-    ) -> TopologyOptionsFlow:
-        """
-        Get the options flow for this handler.
-
-        Returns:
-            The options flow instance for modifying integration options.
-
-        """
-        from custom_components.topology.config_flow_handler.options_flow import (  # noqa: PLC0415
-            TopologyOptionsFlow,
-        )
-
-        return TopologyOptionsFlow()
+    VERSION = STORAGE_VERSION
+    MINOR_VERSION = 1
 
     async def async_step_user(
         self,
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.ConfigFlowResult:
-        """
-        Handle a flow initialized by the user.
+        """Handle the initial user step (§5.1)."""
+        await self.async_set_unique_id(CONFIG_ENTRY_UNIQUE_ID)
+        self._abort_if_unique_id_configured()
 
-        This is the entry point when a user adds the integration from the UI.
-
-        Args:
-            user_input: The user input from the config flow form, or None for initial display.
-
-        Returns:
-            The config flow result, either showing a form or creating an entry.
-
-        """
         errors: dict[str, str] = {}
-
         if user_input is not None:
-            try:
-                await validate_credentials(
-                    self.hass,
-                    username=user_input[CONF_USERNAME],
-                    password=user_input[CONF_PASSWORD],
-                )
-            except Exception as exception:  # noqa: BLE001
-                errors["base"] = self._map_exception_to_error(exception)
-            else:
-                # Set unique ID based on username
-                # NOTE: This is just an example - use a proper unique ID in production
-                # See: https://developers.home-assistant.io/docs/config_entries_config_flow_handler#unique-ids
-                await self.async_set_unique_id(slugify(user_input[CONF_USERNAME]))
-                self._abort_if_unique_id_configured()
-
-                return self.async_create_entry(
-                    title=user_input[CONF_USERNAME],
-                    data=user_input,
-                )
-
-        integration = async_get_loaded_integration(self.hass, DOMAIN)
-        assert integration.documentation is not None, "Integration documentation URL is not set in manifest.json"
+            abort = await self._async_run_checks(errors)
+            if abort is not None:
+                return self.async_abort(reason=abort)
+            if not errors:
+                return self.async_create_entry(title="Topology", data=_normalize(user_input))
 
         return self.async_show_form(
             step_id="user",
             data_schema=get_user_schema(user_input),
             errors=errors,
-            description_placeholders={
-                "documentation_url": integration.documentation,
-            },
         )
 
     async def async_step_reconfigure(
         self,
         user_input: dict[str, Any] | None = None,
     ) -> config_entries.ConfigFlowResult:
-        """
-        Handle reconfiguration of the integration.
-
-        Allows users to update their credentials without removing and re-adding
-        the integration.
-
-        Args:
-            user_input: The user input from the reconfigure form, or None for initial display.
-
-        Returns:
-            The config flow result, either showing a form or updating the entry.
-
-        """
+        """Handle reconfiguration of the singleton entry (§5.2)."""
         entry = self._get_reconfigure_entry()
+
         errors: dict[str, str] = {}
-
         if user_input is not None:
-            try:
-                await validate_credentials(
-                    self.hass,
-                    username=user_input[CONF_USERNAME],
-                    password=user_input[CONF_PASSWORD],
-                )
-            except Exception as exception:  # noqa: BLE001
-                errors["base"] = self._map_exception_to_error(exception)
-            else:
-                return self.async_update_reload_and_abort(
-                    entry,
-                    data=user_input,
-                )
+            abort = await self._async_run_checks(errors)
+            if abort is not None:
+                return self.async_abort(reason=abort)
+            if not errors:
+                return self.async_update_reload_and_abort(entry, data_updates=_normalize(user_input))
 
+        defaults = user_input if user_input is not None else dict(entry.data)
         return self.async_show_form(
             step_id="reconfigure",
-            data_schema=get_reconfigure_schema(entry.data.get(CONF_USERNAME, "")),
+            data_schema=get_reconfigure_schema(defaults),
             errors=errors,
         )
 
-    async def async_step_reauth(
-        self,
-        entry_data: dict[str, Any] | None = None,
-    ) -> config_entries.ConfigFlowResult:
+    async def _async_run_checks(self, errors: dict[str, str]) -> str | None:
+        """Run the test-before-configure checks (§5.1).
+
+        Populates ``errors`` with a form error and returns ``None``, or returns
+        an abort reason (a form retry cannot fix a store downgrade).
         """
-        Handle reauthentication when credentials are invalid.
+        from homeassistant.helpers import area_registry as ar  # noqa: PLC0415
 
-        This flow is automatically triggered when the coordinator catches
-        an authentication error (ConfigEntryAuthFailed).
+        try:
+            area_reg: AreaRegistry = ar.async_get(self.hass)
+            list(area_reg.async_list_areas())
+        except Exception:  # noqa: BLE001 — any registry failure blocks setup
+            errors["base"] = "area_registry_unavailable"
+            return None
 
-        Args:
-            entry_data: The existing entry data (unused, per convention).
+        store = TopologyStore(self.hass)
+        try:
+            await store.async_load()
+        except StoreFutureVersionError:
+            return "store_future_version"
+        except StoreCorruptError, TopologyStoreError:
+            errors["base"] = "store_corrupt"
+        return None
 
-        Returns:
-            The result of the reauth_confirm step.
 
-        """
-        return await self.async_step_reauth_confirm()
-
-    async def async_step_reauth_confirm(
-        self,
-        user_input: dict[str, Any] | None = None,
-    ) -> config_entries.ConfigFlowResult:
-        """
-        Handle reauthentication confirmation.
-
-        Shows the reauthentication form and processes updated credentials.
-
-        Args:
-            user_input: The user input with updated credentials, or None for initial display.
-
-        Returns:
-            The config flow result, either showing a form or updating the entry.
-
-        """
-        entry = self._get_reauth_entry()
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            try:
-                await validate_credentials(
-                    self.hass,
-                    username=user_input[CONF_USERNAME],
-                    password=user_input[CONF_PASSWORD],
-                )
-            except Exception as exception:  # noqa: BLE001
-                errors["base"] = self._map_exception_to_error(exception)
-            else:
-                return self.async_update_reload_and_abort(
-                    entry,
-                    data={**entry.data, **user_input},
-                )
-
-        return self.async_show_form(
-            step_id="reauth_confirm",
-            data_schema=get_reauth_schema(entry.data.get(CONF_USERNAME, "")),
-            errors=errors,
-            description_placeholders={
-                "username": entry.data.get(CONF_USERNAME, ""),
-            },
-        )
-
-    def _map_exception_to_error(self, exception: Exception) -> str:
-        """
-        Map API exceptions to user-facing error keys.
-
-        Args:
-            exception: The exception that was raised.
-
-        Returns:
-            The error key for display in the config flow form.
-
-        """
-        LOGGER.warning("Error in config flow: %s", exception)
-        exception_name = type(exception).__name__
-        return ERROR_MAP.get(exception_name, "unknown")
+def _normalize(user_input: dict[str, Any]) -> dict[str, Any]:
+    """Coerce flow input into stored entry data (threshold as int)."""
+    data = dict(user_input)
+    if CONF_UNANNOTATED_REPAIR_THRESHOLD in data:
+        data[CONF_UNANNOTATED_REPAIR_THRESHOLD] = int(data[CONF_UNANNOTATED_REPAIR_THRESHOLD])
+    return data
 
 
 __all__ = ["TopologyConfigFlowHandler"]

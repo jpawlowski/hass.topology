@@ -1,17 +1,8 @@
 """
-Config flow handler for topology.
+Backwards-compatibility wrapper for the topology config flow handler.
 
-This module provides backwards compatibility by re-exporting the flow handlers
-from their respective modules. The actual implementation is split across:
-
-- config_flow.py: Main config flow (user, reauth, reconfigure)
-- options_flow.py: Options flow for post-setup configuration
-- subentry_flow.py: Template for future subentry flows
-- schemas/: Voluptuous schemas for all forms
-- validators/: Validation logic for user inputs
-
-This structure keeps the code organized while allowing complex flows to grow
-without becoming monolithic.
+Re-exports ``TopologyConfigFlowHandler`` from ``config_flow.py`` for external
+imports. The actual implementation lives in ``config_flow.py``.
 
 For more information:
 https://developers.home-assistant.io/docs/config_entries_config_flow_handler
@@ -19,13 +10,6 @@ https://developers.home-assistant.io/docs/config_entries_config_flow_handler
 
 from __future__ import annotations
 
-from custom_components.topology.config_flow_handler.config_flow import (
-    TopologyConfigFlowHandler,
-)
-from custom_components.topology.config_flow_handler.options_flow import TopologyOptionsFlow
+from custom_components.topology.config_flow_handler.config_flow import TopologyConfigFlowHandler
 
-# Re-export for backwards compatibility and external imports
-__all__ = [
-    "TopologyConfigFlowHandler",
-    "TopologyOptionsFlow",
-]
+__all__ = ["TopologyConfigFlowHandler"]

@@ -1,25 +1,18 @@
-"""Binary sensor platform for topology."""
+"""Binary sensor platform for topology.
+
+Empty platform skeleton: topology adds no binary_sensor entities until Phase 3.
+"""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from custom_components.topology.const import PARALLEL_UPDATES as PARALLEL_UPDATES
-from homeassistant.components.binary_sensor import BinarySensorEntityDescription
-
-from .connectivity import ENTITY_DESCRIPTIONS as CONNECTIVITY_DESCRIPTIONS, TopologyConnectivitySensor
-from .filter import ENTITY_DESCRIPTIONS as FILTER_DESCRIPTIONS, TopologyFilterSensor
 
 if TYPE_CHECKING:
     from custom_components.topology.data import TopologyConfigEntry
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.entity_platform import AddEntitiesCallback
-
-# Combine all entity descriptions from different modules
-ENTITY_DESCRIPTIONS: tuple[BinarySensorEntityDescription, ...] = (
-    *CONNECTIVITY_DESCRIPTIONS,
-    *FILTER_DESCRIPTIONS,
-)
 
 
 async def async_setup_entry(
@@ -27,24 +20,4 @@ async def async_setup_entry(
     entry: TopologyConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the binary_sensor platform."""
-    # Create connectivity sensors
-    connectivity_entities = [
-        TopologyConnectivitySensor(
-            coordinator=entry.runtime_data.coordinator,
-            entity_description=entity_description,
-        )
-        for entity_description in CONNECTIVITY_DESCRIPTIONS
-    ]
-
-    # Create filter sensors
-    filter_entities = [
-        TopologyFilterSensor(
-            coordinator=entry.runtime_data.coordinator,
-            entity_description=entity_description,
-        )
-        for entity_description in FILTER_DESCRIPTIONS
-    ]
-
-    # Add all entities
-    async_add_entities([*connectivity_entities, *filter_entities])
+    """Set up the binary_sensor platform (no entities until Phase 3)."""
