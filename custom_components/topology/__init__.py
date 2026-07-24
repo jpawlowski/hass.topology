@@ -15,8 +15,12 @@ https://github.com/jpawlowski/hass.topology
 
 from __future__ import annotations
 
+import json
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from homeassistant.components import frontend, panel_custom
+from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
@@ -34,6 +38,14 @@ from .const import (
     IMPORT_SOURCE_LABELS,
     ISSUE_STORE_FUTURE_VERSION,
     LEARN_MORE_URL,
+    PANEL_BUILD_MANIFEST,
+    PANEL_DIR,
+    PANEL_ICON,
+    PANEL_MODULE,
+    PANEL_STATIC_URL,
+    PANEL_TITLE,
+    PANEL_URL_PATH,
+    PANEL_WEBCOMPONENT,
 )
 from .coordinator import TopologyCoordinator, TopologyRegistryWatcher
 from .data import TopologyRuntimeData
@@ -65,10 +77,67 @@ async def async_setup(hass: HomeAssistant, config: dict) -> bool:
     Called once at Home Assistant startup. WebSocket commands (cluster e) and
     (from Phase 6) service actions are registered here — not per config entry —
     so they exist even before an entry is loaded (§4).
+
+    The custom panel's static asset directory is registered here too (Phase 7
+    §2.1/§4.4): static-path registration is process-global and may only run once
+    per ``url_path``, so it belongs in ``async_setup``, not per entry.
     """
     await async_setup_services(hass)
     async_register_websocket_api(hass)
+    await hass.http.async_register_static_paths([StaticPathConfig(PANEL_STATIC_URL, str(_panel_dir()), True)])
     return True
+
+
+def _panel_dir() -> Path:
+    """Return the on-disk directory holding the built panel bundle (§4.3)."""
+    return Path(__file__).parent / PANEL_DIR
+
+
+def _read_build_manifest() -> dict[str, str]:
+    """Read the committed ``panel/build.json`` ({module, hash}) from disk (§2.1).
+
+    A missing/corrupt manifest degrades to the fixed filename with no cache bust
+    rather than blocking setup — the bundle is committed beside it. The two error
+    branches are separate ``except`` clauses (not a tuple) so ``ruff format`` can
+    never strip the parentheses into an invalid Python-2 ``except A, B:`` form.
+    """
+    fallback = {"module": PANEL_MODULE, "hash": ""}
+    manifest_path = _panel_dir() / PANEL_BUILD_MANIFEST
+    try:
+        return json.loads(manifest_path.read_text(encoding="utf-8"))
+    except OSError:
+        return fallback
+    except ValueError:
+        return fallback
+
+
+async def _async_register_panel(hass: HomeAssistant, entry: TopologyConfigEntry) -> None:
+    """Register the admin sidebar panel and wire its removal on unload (§2.1).
+
+    ``config_panel_domain=DOMAIN`` routes the integration tile's "Configure"
+    action to the panel (§2.1, D14 Phase-7-local half). ``require_admin=True`` is
+    the UI gate aligned with the write commands' ``@require_admin`` boundary (D8).
+    ``module_url`` carries a ``?<hash>`` cache-bust from ``build.json`` (§4.3/D5).
+    """
+    build = await hass.async_add_executor_job(_read_build_manifest)
+    module = build.get("module", PANEL_MODULE)
+    build_hash = build.get("hash", "")
+    module_url = f"{PANEL_STATIC_URL}/{module}"
+    if build_hash:
+        module_url = f"{module_url}?{build_hash}"
+
+    await panel_custom.async_register_panel(
+        hass,
+        frontend_url_path=PANEL_URL_PATH,
+        webcomponent_name=PANEL_WEBCOMPONENT,
+        sidebar_title=PANEL_TITLE,
+        sidebar_icon=PANEL_ICON,
+        module_url=module_url,
+        require_admin=True,
+        config_panel_domain=DOMAIN,
+        config={"url_path": PANEL_URL_PATH},
+    )
+    entry.async_on_unload(lambda: frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False))
 
 
 async def async_setup_entry(
@@ -137,6 +206,9 @@ async def async_setup_entry(
     entry.async_on_unload(watcher.async_stop)
 
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+
+    # Register the admin sidebar panel last, after the platforms forward (§2.1).
+    await _async_register_panel(hass, entry)
 
     return True
 

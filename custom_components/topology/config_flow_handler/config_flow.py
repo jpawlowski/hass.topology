@@ -17,12 +17,7 @@ from typing import TYPE_CHECKING, Any
 
 from custom_components.topology.config_flow_handler.schemas.config import get_reconfigure_schema, get_user_schema
 from custom_components.topology.const import CONF_UNANNOTATED_REPAIR_THRESHOLD, DOMAIN, STORAGE_VERSION
-from custom_components.topology.store import (
-    StoreCorruptError,
-    StoreFutureVersionError,
-    TopologyStore,
-    TopologyStoreError,
-)
+from custom_components.topology.store import StoreFutureVersionError, TopologyStore, TopologyStoreError
 from homeassistant import config_entries
 
 if TYPE_CHECKING:
@@ -101,7 +96,11 @@ class TopologyConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
             await store.async_load()
         except StoreFutureVersionError:
             return "store_future_version"
-        except StoreCorruptError, TopologyStoreError:
+        except TopologyStoreError:
+            # StoreCorruptError is a TopologyStoreError, so the base catches both
+            # a corrupt store and any transient store error. A single-type except
+            # also avoids the `ruff format` tuple-stripping that produced the
+            # original Python-2 `except A, B:` SyntaxError on main.
             errors["base"] = "store_corrupt"
         return None
 

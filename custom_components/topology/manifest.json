@@ -6,6 +6,10 @@
     "@jpawlowski"
   ],
   "config_flow": true,
+  "dependencies": [
+    "http",
+    "panel_custom"
+  ],
   "documentation": "https://github.com/jpawlowski/hass.topology",
   "integration_type": "helper",
   "iot_class": "calculated",

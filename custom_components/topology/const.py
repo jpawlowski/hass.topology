@@ -50,6 +50,49 @@ ISSUE_EXTERIOR_NON_OUTDOOR = "exterior_on_non_outdoor_side"
 # WebSocket subscription event (§4.12).
 EVENT_TOPOLOGY_UPDATED = "topology_updated"
 
+# --- custom panel (Phase 7, PLAN-topology-phase7.md §2/§4) ------------------
+# The admin sidebar panel is a Lit web-component built from ``frontend/`` and
+# shipped as static assets under ``panel/``. Registration lives in
+# ``__init__`` (D4); these constants are the single source of the URLs/labels.
+#
+# ``PANEL_URL_PATH`` is the sidebar route (``/topology``); ``PANEL_STATIC_URL``
+# is a distinct public prefix the built bundle is served from (§4.4, D5).
+PANEL_URL_PATH = DOMAIN  # "topology"
+PANEL_STATIC_URL = f"/{DOMAIN}_static"  # "/topology_static"
+# Directory (relative to the integration package) holding the built bundle +
+# ``build.json``; served via ``StaticPathConfig`` and read for the module hash.
+PANEL_DIR = "panel"
+# The bundle filename is fixed; cache-busting is a ``?<hash>`` query (D5).
+PANEL_WEBCOMPONENT = "topology-panel"
+PANEL_MODULE = "topology-panel.js"
+PANEL_BUILD_MANIFEST = "build.json"
+PANEL_TITLE = "Topology"
+PANEL_ICON = "mdi:home-floor-g"
+
+# --- repair deep-links (Phase 7, PLAN-topology-phase7.md §3.1) --------------
+# Per-issue ``learn_more_url`` overrides that open the panel focused on the
+# matching view. The HA frontend renders a ``learn_more_url`` beginning with
+# the ``homeassistant://`` scheme as in-app navigation (stripping the scheme to
+# an absolute same-origin path and closing the repairs dialog); any other URL
+# opens in a new tab. Verified against the frontend pinned by HA 2026.7.0
+# (``home-assistant-frontend==20260624.3``,
+# ``panels/config/repairs/dialog-repairs-issue.ts``), so the deep-links use the
+# ``homeassistant://`` form to land in-app on the panel (§3.3, D9).
+#
+# Only the five reactive informational cards and the fixable orphan card appear
+# here; ids absent from this map keep the shared ``LEARN_MORE_URL`` (repo). No
+# issue id, severity, placeholder, or fixability flag changes — this varies the
+# ``learn_more_url`` string only (D9).
+_PANEL_DEEP_LINK = f"homeassistant://{PANEL_URL_PATH}"
+ISSUE_DEEP_LINKS: dict[str, str] = {
+    ISSUE_UNANNOTATED_THRESHOLD: f"{_PANEL_DEEP_LINK}?focus=unannotated",
+    ISSUE_ISOLATED_AREAS: f"{_PANEL_DEEP_LINK}?focus=isolated",
+    ISSUE_INDOOR_WITHOUT_FLOOR: f"{_PANEL_DEEP_LINK}?focus=floors",
+    ISSUE_CONTRADICTORY_BEARINGS: f"{_PANEL_DEEP_LINK}?focus=bearings",
+    ISSUE_EXTERIOR_NON_OUTDOOR: f"{_PANEL_DEEP_LINK}?focus=exterior",
+    ISSUE_ORPHANED_ENTRIES: f"{_PANEL_DEEP_LINK}?focus=orphans",
+}
+
 # --- service actions (Phase 6, PLAN-topology-phase6.md §2) ------------------
 # The seven v1 services, all ``topology.<name>``, registered in
 # ``service_actions.async_setup_services`` from ``async_setup`` (§2, D2).

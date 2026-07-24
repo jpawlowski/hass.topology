@@ -1,0 +1,40 @@
+name: Frontend
+
+on:
+  push:
+    branches:
+      - "main"
+  pull_request:
+    branches:
+      - "main"
+
+permissions: {}
+
+jobs:
+  frontend:
+    name: "Panel build + check"
+    runs-on: "ubuntu-latest"
+    steps:
+      - name: Checkout the repository
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+
+      - name: Set up Node.js
+        uses: actions/setup-node@39370e3970a6d050c480ffad4ff0ed4d3fdee5af # v4.1.0
+        with:
+          node-version: "22"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type-check + unit test the panel
+        run: script/frontend-check
+
+      - name: Build the panel bundle
+        run: script/frontend
+
+      - name: Assert the committed bundle matches a fresh build
+        run: |
+          if ! git diff --exit-code -- custom_components/topology/panel/; then
+            echo "::error::The committed panel bundle is stale. Run 'script/frontend' and commit the result."
+            exit 1
+          fi

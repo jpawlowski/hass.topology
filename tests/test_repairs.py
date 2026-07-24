@@ -18,6 +18,7 @@ from custom_components.topology.const import (
     DOMAIN,
     EVENT_TOPOLOGY_UPDATED,
     ISSUE_CONTRADICTORY_BEARINGS,
+    ISSUE_DEEP_LINKS,
     ISSUE_EXTERIOR_NON_OUTDOOR,
     ISSUE_INDOOR_WITHOUT_FLOOR,
     ISSUE_ISOLATED_AREAS,
@@ -25,7 +26,6 @@ from custom_components.topology.const import (
     ISSUE_STORE_FUTURE_VERSION,
     ISSUE_UNANNOTATED_THRESHOLD,
     ISSUE_UNKNOWN_ENUM,
-    LEARN_MORE_URL,
 )
 from custom_components.topology.entity_utils.derivations import build_health, derive
 from custom_components.topology.repairs import (
@@ -105,7 +105,8 @@ async def test_unannotated_threshold_created(
     assert issue is not None
     assert issue.is_fixable is False
     assert issue.severity == ir.IssueSeverity.WARNING
-    assert issue.learn_more_url == LEARN_MORE_URL
+    # Phase 7 (§3.1, D9): the reactive card now deep-links into the panel.
+    assert issue.learn_more_url == ISSUE_DEEP_LINKS[ISSUE_UNANNOTATED_THRESHOLD]
     assert issue.translation_placeholders == {"count": "3", "threshold": "3"}
 
 
