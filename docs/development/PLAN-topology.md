@@ -331,6 +331,14 @@ topology when a dependent capability would benefit:
     (`occupancy_extent`, opt-in imports, label-projection toggle) —
     covers Bronze `test-before-configure` / `test-before-setup` with
     meaningful checks (area registry accessible, store readable).
+    _Planned Phase-2 refinement (tracked in `PLAN-topology-phase7.md` D14):_
+    once the panel exists, the flow slims to a **confirm-only** step and
+    settings move to the panel (`update_home_config` + `config_panel_domain`
+    so "Configure" opens the panel); the one-time import opt-in becomes a
+    panel **first-run** action rather than a flow step. A (thin) flow stays
+    mandatory — HA creates the config entry only via a flow, and Bronze
+    `config-flow` requires it — this is independent of core vs. custom (an
+    entry-based integration needs it either way).
   - **Admin UI / panel** as the primary editing surface for area
     annotations, edges, and connections via named presets (expanding to
     `passage` + `barrier`); WebSocket API with `connection.user` auth,
@@ -363,6 +371,18 @@ topology when a dependent capability would benefit:
       variant/maintenance cost and a real risk the template never matches
       the actual home. The two-axis connection presets and the `type`
       cascade cover everyday setup without it.
+  - **Read-only Lovelace map card** — a household-member **consumption**
+    surface (the house map on a normal dashboard), distinct from the
+    admin **editing** panel. Splits config (admin panel) from consumption
+    (card for everyone) the HA-idiomatic way and is the answer to "a
+    non-admin wants to see the house map" without opening the editor to
+    users. Fully feasible non-core (custom cards are the canonical HACS
+    frontend extension). The v1 panel's WS-consumer + read-only renderer
+    are kept **card-reusable** so the card is later a thin consumer, not a
+    rewrite (`PLAN-topology-phase7.md` D15/§4.2).
+  - **Dashboard strategy** — an auto-generated dashboard/view derived from
+    the topology model (areas grouped by floor/environment). Heavier than
+    the card; also non-core-feasible. Deferred behind the card.
   - **Assist intent pack** — dedicated `intent_script` handlers that
     expose topology filters to the built-in Light/Cover/Lock intents
     ("outside", "north-facing", "on the perimeter"). v1 ships only
@@ -443,6 +463,11 @@ legible and explorable.
 - **3D house view (v2+)** — floors stacked by `level` into one orbit /
   zoom "house", vertical connections (stairs, lifts) drawn between floors,
   outdoor areas (garden, yard) placed around the stack.
+- **Read-only Lovelace map card (v2+)** — the same per-floor 2D render
+  packaged as a dashboard card for **non-admin consumption**, distinct
+  from the admin editing panel (§5 "Later"; the panel's read-only renderer
+  is kept card-reusable, `PLAN-topology-phase7.md` D15). "For humans" here
+  finally reaches humans who are not the admin.
 - **Procedural layout (the hard part, v2+)** — positions and _sizes_ come
   from a graph layout, not coordinates. A hub is **sized by its degree**
   so several rooms attach along one face — the hallway with three rooms off
