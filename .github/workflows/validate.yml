@@ -34,11 +34,11 @@ jobs:
           category: integration
           # Ignored HACS "include" checks — these are GitHub repository settings,
           # not code, so they cannot be satisfied from within a PR:
-          #   brands       — no brand images published yet (see link below)
-          #   description  — set a repository description in Settings → General
-          #   topics       — add repository topics via the "About" gear
-          # Once the repo description + topics are set (and brand images added),
-          # drop the matching entries here so the checks run again.
+          #   brands  — no brand images published yet (see link below)
+          #   topics  — add repository topics via the "About" gear (⚙)
+          # The repository description is now set, so it is validated again.
+          # Once repository topics are set (and brand images added), drop the
+          # matching entries here so the checks run again.
           # https://developers.home-assistant.io/docs/creating_integration_file_structure/#brand-images---brand
           # https://hacs.xyz/docs/publish/include#check-repository
-          ignore: brands description topics
+          ignore: brands topics
