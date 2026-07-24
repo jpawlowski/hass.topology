@@ -62,3 +62,9 @@ SUFFIX_PERIMETER_OPEN = "perimeter_open"
 # Entity translation keys (§5). Per-area keys are ``area_{dimension}``.
 TRANSLATION_KEY_HOUSE = "house"
 TRANSLATION_KEY_PERIMETER_OPEN = "perimeter_open"
+
+# --- perimeter binary sensor (Phase 4, PLAN-topology-phase4.md §2) ----------
+# Debounce for coalescing bound-sensor state changes into one state write
+# (§2.3, decision D5). 0.0 = effectively immediate; raise here (no logic change)
+# if HA-startup / bulk-recovery churn proves noisy.
+PERIMETER_DEBOUNCE_SECONDS = 0.0
