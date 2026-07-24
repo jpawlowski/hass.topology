@@ -2,7 +2,9 @@
 
 **Status:** Implementation plan (frozen artifacts per PLAN-topology.md §10,
 gate "Before Phase 5 (repairs + services)" — the **services** half, split out to
-Phase 6 by PLAN-topology-phase5.md D1) · Last updated 2026-07-24
+Phase 6 by PLAN-topology-phase5.md D1) · Last updated 2026-07-24 ·
+**Decisions D1–D13 ratified by the maintainer 2026-07-24 — cleared for
+implementation.**
 
 **Scope:** Phase 6 (**services + exception-translations + diagnostics export +
 label-projection + one-shot imports**) — the action layer on top of the
@@ -671,8 +673,10 @@ fixed.
 ## 9. Decision protocol (D1–D13)
 
 Every place the design plan leaves room, or where this plan diverges from it,
-with a recommended, minimal-invasive option. **Ratify before Phase-6 code is
-written.** The sections above assume the recommended option.
+with a recommended, minimal-invasive option. The sections above assume the
+recommended option. **All thirteen decisions below were ratified by the
+maintainer on 2026-07-24 — every "Recommended option" is now the binding
+decision; Phase-6 code may be written against it.**
 
 | #   | Question / gap                                   | Recommended option                                                                                                                                                                                                                                                                                      | Note / contradiction                                                                                                                                                                                                                                                                                                         |
 | --- | ------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
