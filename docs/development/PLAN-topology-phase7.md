@@ -32,9 +32,12 @@ the _primary_ editor. Concretely it delivers four things:
 2. a **frontend build/delivery pipeline** (esbuild bundle, CSP-clean — no CDN,
    everything inlined or `StaticPathConfig`-served — content-hashed cache-busting,
    `panel_custom` registration) (§4, D2–D6);
-3. **deep-link repair fix-routes** — the seven Phase-5 informational cards get a
-   per-issue `learn_more_url` that opens the panel focused on the relevant view,
-   **without changing any frozen issue id** (§3, D9);
+3. **deep-link repair fix-routes** — the Phase-5 repair cards the panel can
+   remediate (the **five reactive informational cards** + the **orphan** review
+   link) get a per-issue `learn_more_url` that opens the panel focused on the
+   relevant view; the two non-panel-remediable cards
+   (`unknown_enum_after_downgrade`, `store_future_version`) keep the repo URL —
+   all **without changing any frozen issue id** (§3.1, D9);
 4. the **WS-auth-model consolidation** — the reads-any-auth / writes-admin split
    is already implemented; Phase 7 only records it as the frozen model and aligns
    the panel's own `require_admin` gate (§2.7, D8/D12).
@@ -72,8 +75,10 @@ below is written against.
 document alone in ~3–4 working days without going back to the design plan; the
 panel appears in the sidebar (admin-only) when the integration is configured,
 renders a per-floor 2D map of areas + edges, and edits every field through the
-existing WS write commands with live refresh over `subscribe_updates`; the seven
-informational repair cards deep-link into the panel; `script/check`,
+existing WS write commands with live refresh over `subscribe_updates`; the
+panel-remediable repair cards (the five reactive informational cards + the orphan
+review link) deep-link into the panel while the two non-remediable ones keep the
+repo URL (§3.1); `script/check`,
 `script/hassfest`, and `script/test` stay green (the Python surface added is
 small — panel registration + a per-issue `learn_more_url` map); the frontend
 build (`script/frontend`) produces a **single self-contained**, content-hashed
@@ -730,27 +735,43 @@ implementation. **D15** adds no Phase-7 deliverable beyond a module-boundary
 discipline (§4.2). Everything else fills a gap the design left open for the §10
 gate.
 
-**Open verification item (not a free choice — a fact to establish):** **D9**
-carries an assumption about how `home-assistant/frontend` renders a repair-card
-`learn_more_url` (§3 note / §3.3). This was **not** verifiable from the Python
-package introspected for Appendix A and must be checked against the frontend
-before D9 is treated as frozen; the id-stable fallbacks in §3.3 mean the check
-can only downgrade the ergonomics, never the id-stability guarantee.
+**Open verification items (not free choices — facts to establish before
+implementation):**
+
+1. **D9 frontend rendering.** How `home-assistant/frontend` renders a repair-card
+   `learn_more_url` (in-app vs. forced new-tab, relative vs. absolute; §3 note /
+   §3.3). Not verifiable from the Python package introspected for Appendix A; the
+   id-stable fallbacks in §3.3 mean the check can only downgrade the ergonomics,
+   never the id-stability guarantee.
+2. **Appendix A signatures vs. the repo's HA target.** The panel / http / frontend
+   signatures were introspected on HA **2026.2.3**, but the repo declares
+   **`2026.7.0`** (`hacs.json`). Re-run the introspection against 2026.7.0 (or the
+   version the CI harness resolves) before treating Appendix A as frozen — these
+   APIs are long-stable, but the check was not possible in the plan's environment
+   (Python 3.14.2+ unavailable). Codex PR-review, PR #11.
 
 ---
 
 ## Appendix A — HA 2026.x signature verification
 
-Signatures were verified by **introspection of an installed Home Assistant**
-(`homeassistant` **2026.2.3**, installed in a Python-3.13 `uv` venv for this
-plan). The Phase-1..6 test target is **2026.4.4** (what
-`pytest-homeassistant-custom-component==0.13.325` pins, requiring Python ≥
-3.14.2); that exact build was **not installable in this environment** (only
-CPython 3.14.0rc2 is available here, and 3.14.2 has no download), so the nearest
-installable release was introspected. **The frontend / http / panel APIs used
-below are long-stable and identical across 2026.2 → 2026.4** — a trivial re-check
-against 2026.4.4 before implementation is recommended but no signature drift is
-expected. These supplement the Phase-2..6 appendices.
+**⚠️ Version caveat — re-verify against the repo's HA target before treating
+these as frozen.** This repo declares its minimum HA as **`2026.7.0`**
+(`hacs.json`) — that, not the introspected version, is the target Phase-7 code is
+written and tested against. The signatures below were verified by **introspection
+of `homeassistant` 2026.2.3** (installed in a Python-3.13 `uv` venv for this
+plan). Neither the repo's `2026.7.0` target nor the Phase-1..6 test pin
+(`2026.4.4`, from `pytest-homeassistant-custom-component==0.13.325`) was
+installable in this environment: both require Python ≥ 3.14.2, and only CPython
+3.14.0rc2 is available here (3.14.2 has no download), so the nearest installable
+release was introspected instead. The frontend / http / panel APIs used below
+(`async_register_built_in_panel`, `panel_custom.async_register_panel` incl.
+`config_panel_domain`, `StaticPathConfig` / `async_register_static_paths`,
+`async_remove_panel`) are long-stable and were unchanged across 2026.2 → 2026.4,
+so **drift to 2026.7 is unlikely — but not verified here.** Re-running this
+introspection against **2026.7.0** (or the version the CI test harness actually
+resolves) is a **pre-implementation task**, listed with D9's frontend check in
+the "Open verification items" note above §9. These supplement the Phase-2..6
+appendices.
 
 ### A.1 `frontend.async_register_built_in_panel` — `homeassistant/components/frontend/__init__.py`
 
