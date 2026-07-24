@@ -2,13 +2,18 @@
 
 **Status:** Implementation plan (frozen artifact for the Phase-2 re-freeze
 carved out of `PLAN-topology-phase7.md` D14) · Last updated 2026-07-24 ·
-**Decisions D1–D14 below are recommendations, not yet ratified** — this document
-_is_ the ratification artifact for the follow-up that Phase-7 D14 deferred.
+**Decisions D1–D14 ratified by the maintainer 2026-07-24 — cleared for
+implementation.** Every "Recommended option" in §9 is now the binding decision;
+this document is the frozen contract the implementation PR is written against.
 Phase 7 ratified the _direction_ ("slim the flow, move settings + the import
 opt-in to the panel") and explicitly sequenced the field removal here, as a
-separate change with a deprecation/migration window. Everything that requires a
-fact this environment could not establish is listed as an **open verification
-item** (§9) — those are pre-implementation tasks, not open choices.
+separate change with a deprecation/migration window; ratification of §9 closes
+that sequencing. Five carve-outs survive ratification as **pre-implementation
+tasks, not open choices** — the **open verification items** listed under §9 are
+facts this environment could not establish (frontend form submission, hassfest on
+a field-less step, reconfigure reachability, `MockConfigEntry` version defaults,
+`hass.callService` availability). Each has a stated fallback that changes only
+the mechanism, never a ratified decision.
 
 **Scope:** the second half of Phase-7 D14 — **slimming the Phase-2 config flow
 to a confirm-only step**, **removing the four duplicated settings fields**
@@ -389,18 +394,19 @@ public release yet (`manifest.json` stays `0.x`; the single public release is
 `1.0.0` at the end of the full scope) and that pre-release changes "need no
 public deprecation window; a coordinated update of both repositories suffices".
 Counting the window in _released versions_ is therefore meaningless. The
-recommended policy is the repo's actual unit of cadence:
+ratified policy is the repo's actual unit of cadence:
 
 > **S2 lands no earlier than the completion of the next phase (Phase 8) and no
 > later than the 1.0.0 release preparation** — i.e. the legacy keys survive at
 > least one full phase of real use on the maintainer's and Residents' instances,
 > and the entry shape is clean before the first public release.
 
-If the maintainer prefers, S1 and S2 can be **collapsed into a single change**
-(clear the keys immediately, `minor_version = 2`, delete the mirror and
-`_run_setup_imports` now) — the ADR permits it pre-1.0.0 and it removes ~20
-lines of transitional code. That trade is the substance of D8/D9/D10/D12 and is
-the single most consequential choice to ratify in this document.
+Collapsing S1 and S2 into a single change (clear the keys immediately,
+`minor_version = 2`, delete the mirror and `_run_setup_imports` now) was the
+recorded alternative — the ADR permits it pre-1.0.0 and it would remove ~20 lines
+of transitional code. It was **weighed and not taken** (D8/D9/D10/D12, ratified
+2026-07-24): the two-stage window stands, so the implementation PR ships **S1
+only** and S2 is a later, separate change.
 
 ### 3.6 Breaking-change policy compliance
 
@@ -645,9 +651,14 @@ callable from Developer Tools).
 ## 9. Decision protocol (D1–D14)
 
 Each row is a choice this plan makes, with a recommended, minimal-invasive option
-and the counter-argument. **None is ratified yet.** D2, D3, D4, D8, D9, D10 and
-D12 are the ones that materially change the resulting code; the rest are
-mechanical.
+and the counter-argument. **All fourteen were ratified by the maintainer on
+2026-07-24 — every "Recommended option" is now the binding decision and the
+implementation may be written against it.** The counter-arguments are retained as
+the record of what was weighed, not as live alternatives: in particular the
+two-stage deprecation window (D8/D9/D10/D12) is **confirmed as specified** — S1
+keeps the legacy `entry.data` keys, the write-only mirror, and the stamp-guarded
+`_run_setup_imports`; S2 removes all three. Collapsing the stages was the
+recorded alternative and is **not** what was ratified.
 
 | #   | Question / gap                                           | Recommended option                                                                                                                                                                    | Note / counter-argument                                                                                                                                                                                                                                                                                                       |
 | --- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -666,8 +677,10 @@ mechanical.
 | D13 | Dead translation keys                                    | **Remove** the `config.step.*.data*` blocks **and** `selector.occupancy_extent` (its only consumer was the flow selector).                                                            | Keeps `en.json` honest. Counter: `selector.occupancy_extent` is a string a future surface might want back — but panel i18n is frontend-side (Phase-7 D11), so nothing in Python will consume it. Trivially reversible.                                                                                                        |
 | D14 | Test-fixture strategy for the old shape                  | **Change `entry_data` to `{}`, pin `mock_config_entry` to the current minor version, and add explicit `legacy_entry_data` / `legacy_config_entry` fixtures** for the migration tests. | Keeps the ~20 existing suites on the new shape while the legacy shape is exercised deliberately. Alternative: parametrize every setup fixture over both shapes (rejected — it would run the migration inside unrelated suites and hide failures).                                                                             |
 
-**Open verification items (facts to establish before implementation, not free
-choices):**
+**Open verification items — the five carve-outs that survive ratification. These
+are facts to establish as the first task of the implementation PR, not free
+choices; each has a stated fallback that changes a mechanism, never a ratified
+decision:**
 
 1. **Empty-schema form submission (D2).** This plan verified in the Python layer
    that a `vol.Schema({})` form validates `{}` and that the step is re-entered
