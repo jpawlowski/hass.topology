@@ -451,13 +451,58 @@ class HouseProjection:
     floor_count: int
 
 
+# --- Phase 4 aggregates + derivations (PLAN-topology-phase4.md §5) ----------
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class PerimeterConnection:
+    """A derived perimeter connection with its bound sensor (§2, §4.10)."""
+
+    source: str  # "edge" | "exterior"
+    edge_id: str | None
+    area_id: str
+    connection_index: int
+    sensor_entity_id: str | None
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class Neighbor:
+    """An adjacent area reached over one non-orphaned interior edge (§4.1)."""
+
+    area_id: str
+    edge_id: str
+    axis: str  # "horizontal" | "vertical" | "unknown"
+    is_perimeter: bool
+    traversable: bool
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class GraphView:
+    """Adjacency over non-orphaned interior edges (§4)."""
+
+    adjacency: dict[str, tuple[Neighbor, ...]]  # area_id -> neighbours
+
+
+@dataclass(frozen=True, kw_only=True, slots=True)
+class ConsistencyReport:
+    """The four Phase-4 graph-consistency lists (§3), each sorted area_ids."""
+
+    isolated_areas: tuple[str, ...]
+    indoor_areas_without_floor: tuple[str, ...]
+    contradictory_bearings: tuple[str, ...]
+    exterior_on_non_outdoor_side: tuple[str, ...]
+
+
 @dataclass(frozen=True, kw_only=True, slots=True)
 class TopologyDerived:
-    """Registry-merged projection cached on the coordinator (§7.3)."""
+    """Registry-merged projection cached on the coordinator (§7.3, §5)."""
 
     house: HouseProjection
     areas: tuple[AreaProjection, ...]
     live_area_ids: frozenset[str]  # registry areas, non-orphaned
+    perimeter: tuple[PerimeterConnection, ...]
+    graph: GraphView
+    consistency: ConsistencyReport
 
 
 # --- converters store-dict <-> dataclass -----------------------------------

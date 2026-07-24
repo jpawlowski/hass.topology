@@ -16,15 +16,20 @@ from typing import TYPE_CHECKING, Any
 from custom_components.topology.data import (
     TRUST_ORDER,
     AreaProjection,
+    BeyondClass,
+    ConsistencyReport,
     Environment,
     HouseProjection,
+    PerimeterConnection,
     TopologyDerived,
     Trust,
 )
 from homeassistant.util import slugify
 
 if TYPE_CHECKING:
-    from custom_components.topology.data import Edge, FloorOverride, TopologySnapshot
+    from collections.abc import Iterator
+
+    from custom_components.topology.data import Connection, Edge, FloorOverride, TopologySnapshot
     from homeassistant.helpers.area_registry import AreaRegistry
     from homeassistant.helpers.floor_registry import FloorRegistry
 
@@ -55,9 +60,16 @@ def is_perimeter_edge(edge: Edge, area_trust: dict[str, Trust | None]) -> bool:
     return any(connection.perimeter_override for connection in edge.connections)
 
 
-def derive_perimeter(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list[dict[str, Any]]:
-    """Derive the perimeter-connection list (§4.10). Orphaned entries excluded."""
-    perimeter: list[dict[str, Any]] = []
+def _iter_perimeter(
+    snapshot: TopologySnapshot,
+) -> Iterator[tuple[str, str | None, str, int, str | None]]:
+    """Yield ``(source, edge_id, area_id, connection_index, sensor_entity_id)`` (§4.10).
+
+    The single perimeter core shared by the dict form (``derive_perimeter``, for
+    the frozen ``read_hook`` bytes) and the typed form
+    (``derive_perimeter_connections``, for the binary sensor) so they cannot
+    diverge (decision D16). Orphaned entries excluded.
+    """
     area_trust = {annotation.area_id: annotation.trust for annotation in snapshot.areas}
 
     # Exterior connections: trust vs inline_trust (absent => public).
@@ -68,32 +80,45 @@ def derive_perimeter(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list
             inline = connection.inline_trust or Trust.PUBLIC
             owner_trust = annotation.trust
             if owner_trust is None or TRUST_ORDER[owner_trust] != TRUST_ORDER[inline]:
-                perimeter.append(
-                    {
-                        "source": "exterior",
-                        "edge_id": None,
-                        "area_id": annotation.area_id,
-                        "connection_index": index,
-                        "sensor_entity_id": connection.sensor_entity_id,
-                    }
-                )
+                yield "exterior", None, annotation.area_id, index, connection.sensor_entity_id
 
     # Interior edges whose sides differ in trust (or carry perimeter_override).
     for edge in snapshot.edges:
         if edge.orphaned_at is not None or not is_perimeter_edge(edge, area_trust):
             continue
         for index, connection in enumerate(edge.connections):
-            perimeter.append(
-                {
-                    "source": "edge",
-                    "edge_id": edge.edge_id,
-                    "area_id": edge.area_a,
-                    "connection_index": index,
-                    "sensor_entity_id": connection.sensor_entity_id,
-                }
-            )
+            yield "edge", edge.edge_id, edge.area_a, index, connection.sensor_entity_id
 
-    return perimeter
+
+def derive_perimeter(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list[dict[str, Any]]:
+    """Derive the perimeter-connection list as dicts (§4.10, frozen read_hook shape)."""
+    return [
+        {
+            "source": source,
+            "edge_id": edge_id,
+            "area_id": area_id,
+            "connection_index": index,
+            "sensor_entity_id": sensor_entity_id,
+        }
+        for source, edge_id, area_id, index, sensor_entity_id in _iter_perimeter(snapshot)
+    ]
+
+
+def derive_perimeter_connections(
+    snapshot: TopologySnapshot,
+    area_reg: AreaRegistry,
+) -> tuple[PerimeterConnection, ...]:
+    """Derive the typed perimeter connections for the binary sensor (§2, §5.2)."""
+    return tuple(
+        PerimeterConnection(
+            source=source,
+            edge_id=edge_id,
+            area_id=area_id,
+            connection_index=index,
+            sensor_entity_id=sensor_entity_id,
+        )
+        for source, edge_id, area_id, index, sensor_entity_id in _iter_perimeter(snapshot)
+    )
 
 
 def annotation_counts(
@@ -168,15 +193,148 @@ def derive_house(
     )
 
 
+def _live_registry_ids(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> set[str]:
+    """Return non-orphaned registry area ids (§3)."""
+    annotations = {annotation.area_id: annotation for annotation in snapshot.areas}
+    return {
+        area.id
+        for area in area_reg.async_list_areas()
+        if not (area.id in annotations and annotations[area.id].orphaned_at is not None)
+    }
+
+
+def derive_consistency(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> ConsistencyReport:
+    """Compute the four graph-consistency lists (§3). Non-orphaned registry areas only."""
+    registry_areas = {area.id: area for area in area_reg.async_list_areas()}
+    annotations = {annotation.area_id: annotation for annotation in snapshot.areas}
+    live_ids = _live_registry_ids(snapshot, area_reg)
+    # Only nag about a floorless indoor area when the home actually uses floors
+    # (some area is assigned one). A single-storey home that models no floors at
+    # all is not flagged (§3.2, D9).
+    home_uses_floors = any(area.floor_id is not None for area in registry_areas.values())
+
+    # isolated_areas: not an endpoint of any non-orphaned interior edge (§3.1, D8).
+    connected: set[str] = set()
+    edge_sides: dict[str, set[str]] = {}
+    for edge in snapshot.edges:
+        if edge.orphaned_at is not None:
+            continue
+        connected.add(edge.area_a)
+        connected.add(edge.area_b)
+        for connection in edge.connections:
+            if connection.side is not None:
+                edge_sides.setdefault(edge.area_a, set()).add(connection.side.value)
+                edge_sides.setdefault(edge.area_b, set()).add(connection.side.value)
+    isolated = tuple(sorted(area_id for area_id in live_ids if area_id not in connected))
+
+    indoor_without_floor: list[str] = []
+    contradictory: list[str] = []
+    exterior_bad: list[str] = []
+    for area_id in live_ids:
+        annotation = annotations.get(area_id)
+        # indoor_areas_without_floor (§3.2, D9): indoor + no registry floor,
+        # only when the home uses floors at all.
+        if (
+            home_uses_floors
+            and annotation is not None
+            and annotation.environment is Environment.INDOOR
+            and registry_areas[area_id].floor_id is None
+        ):
+            indoor_without_floor.append(area_id)
+        if annotation is None:
+            continue
+        beyond = {side.value: beyond_class for side, beyond_class in annotation.beyond}
+        # contradictory_bearings (§3.3, D10): a side is both interior-edge and beyond.
+        if set(beyond) & edge_sides.get(area_id, set()):
+            contradictory.append(area_id)
+        # exterior_on_non_outdoor_side (§3.4, D11): an exterior opening that cannot
+        # physically sit where it is. ``earth`` (buried wall) forbids any opening;
+        # a ``neighbor`` (party) wall may carry a door to shared space — the §2.5
+        # apartment door — but not a window (glazed). ``outdoor`` and an unset
+        # side are never flagged.
+        for connection in annotation.exterior_connections:
+            if connection.side is None:
+                continue
+            beyond_class = beyond.get(connection.side.value)
+            if beyond_class is BeyondClass.EARTH or (beyond_class is BeyondClass.NEIGHBOR and connection.glazed):
+                exterior_bad.append(area_id)
+                break
+
+    return ConsistencyReport(
+        isolated_areas=isolated,
+        indoor_areas_without_floor=tuple(sorted(indoor_without_floor)),
+        contradictory_bearings=tuple(sorted(contradictory)),
+        exterior_on_non_outdoor_side=tuple(sorted(exterior_bad)),
+    )
+
+
+def _facing_entry(source: str, edge_id: str | None, area_id: str, index: int, connection: Connection) -> dict[str, Any]:
+    """Serialize one outdoor-facing connection (§4.3)."""
+    return {
+        "source": source,
+        "area_id": area_id,
+        "edge_id": edge_id,
+        "connection_index": index,
+        "side": connection.side.value if connection.side is not None else None,
+        "passage": connection.passage.value,
+        "barrier": connection.barrier.value,
+        "glazed": connection.glazed,
+        "sensor_entity_id": connection.sensor_entity_id,
+    }
+
+
+def connections_facing_outdoor(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list[dict[str, Any]]:
+    """List proven open-air connections (§4.3, D15). Orphaned entries excluded."""
+    result: list[dict[str, Any]] = []
+    area_env = {annotation.area_id: annotation.environment for annotation in snapshot.areas}
+
+    # Exterior connections only where side is set and beyond[side] == outdoor.
+    for annotation in snapshot.areas:
+        if annotation.orphaned_at is not None:
+            continue
+        beyond = {side.value: beyond_class for side, beyond_class in annotation.beyond}
+        for index, connection in enumerate(annotation.exterior_connections):
+            if connection.side is not None and beyond.get(connection.side.value) is BeyondClass.OUTDOOR:
+                result.append(_facing_entry("exterior", None, annotation.area_id, index, connection))
+
+    # Interior edges with exactly one environment==outdoor endpoint. Attribute
+    # the entry to the NON-outdoor endpoint — the room whose opening faces
+    # outside — not edge.area_a (which is just the lexicographically smaller id
+    # and may be the outdoor area, e.g. balcony::bedroom). PR-review r3645648771.
+    for edge in snapshot.edges:
+        if edge.orphaned_at is not None:
+            continue
+        outdoor_a = area_env.get(edge.area_a) is Environment.OUTDOOR
+        outdoor_b = area_env.get(edge.area_b) is Environment.OUTDOOR
+        if outdoor_a is not outdoor_b:
+            room_id = edge.area_b if outdoor_a else edge.area_a
+            for index, connection in enumerate(edge.connections):
+                result.append(_facing_entry("edge", edge.edge_id, room_id, index, connection))
+
+    return result
+
+
 def derive(
     snapshot: TopologySnapshot,
     area_reg: AreaRegistry,
     floor_reg: FloorRegistry,
 ) -> TopologyDerived:
-    """Build the full registry-merged projection cached on the coordinator (§7.3)."""
+    """Build the full registry-merged projection cached on the coordinator (§7.3, §5)."""
+    # Local import breaks the derivations <-> graph import cycle (graph needs
+    # effective_level/is_perimeter_edge from here).
+    from custom_components.topology.entity_utils.graph import build_graph  # noqa: PLC0415
+
     areas = derive_areas(snapshot, area_reg)
     house = derive_house(snapshot, area_reg, floor_reg)
     live_area_ids = frozenset(
         projection.area_id for projection in areas if projection.exists and not projection.orphaned
     )
-    return TopologyDerived(house=house, areas=areas, live_area_ids=live_area_ids)
+    overrides = {override.floor_id: override for override in snapshot.floors}
+    return TopologyDerived(
+        house=house,
+        areas=areas,
+        live_area_ids=live_area_ids,
+        perimeter=derive_perimeter_connections(snapshot, area_reg),
+        graph=build_graph(snapshot, area_reg, floor_reg, overrides),
+        consistency=derive_consistency(snapshot, area_reg),
+    )

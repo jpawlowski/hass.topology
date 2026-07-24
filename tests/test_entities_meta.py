@@ -30,16 +30,17 @@ async def test_perimeter_ids_frozen() -> None:
     assert perimeter_unique_id("ENTRY") == "ENTRY_perimeter_open"
 
 
-async def test_perimeter_not_emitted_phase3(
+async def test_perimeter_emitted_phase4(
     hass: HomeAssistant,
     setup_integration: MockConfigEntry,
     area_registry: ar.AreaRegistry,
 ) -> None:
-    """No perimeter binary sensor is created in Phase 3 (impl deferred to Phase 4, D1)."""
-    assert hass.states.get("binary_sensor.topology_perimeter_open") is None
+    """The perimeter binary sensor exists from Phase 4 with its frozen unique_id (D1)."""
     registry = er.async_get(hass)
     unique_id = perimeter_unique_id(setup_integration.entry_id)
-    assert registry.async_get_entity_id("binary_sensor", "topology", unique_id) is None
+    entity_id = registry.async_get_entity_id("binary_sensor", "topology", unique_id)
+    assert entity_id == "binary_sensor.topology_perimeter_open"
+    assert hass.states.get("binary_sensor.topology_perimeter_open") is not None
 
 
 async def test_entity_translations_present() -> None:

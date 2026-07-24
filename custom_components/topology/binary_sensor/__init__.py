@@ -1,6 +1,7 @@
-"""Binary sensor platform for topology.
+"""Binary sensor platform for topology (§2, §6).
 
-Empty platform skeleton: topology adds no binary_sensor entities until Phase 3.
+Adds the single always-on perimeter-open aggregate. The bound-sensor tracking
+lives in the entity; the platform only instantiates it.
 """
 
 from __future__ import annotations
@@ -8,6 +9,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from custom_components.topology.const import PARALLEL_UPDATES as PARALLEL_UPDATES
+
+from .perimeter import TopologyPerimeterBinarySensor
 
 if TYPE_CHECKING:
     from custom_components.topology.data import TopologyConfigEntry
@@ -20,4 +23,5 @@ async def async_setup_entry(
     entry: TopologyConfigEntry,
     async_add_entities: AddEntitiesCallback,
 ) -> None:
-    """Set up the binary_sensor platform (no entities until Phase 3)."""
+    """Set up the perimeter-open binary sensor (§6.2)."""
+    async_add_entities([TopologyPerimeterBinarySensor(entry.runtime_data.coordinator)])

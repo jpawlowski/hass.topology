@@ -180,10 +180,19 @@ regardless of traversability — traversability is a separate query concern, §4
 ### 3.2 `indoor_areas_without_floor`
 
 A non-orphaned registry area whose `environment == indoor` **and** whose
-registry `AreaEntry.floor_id is None` (D9). Areas with `environment` `outdoor`,
-`semi_outdoor`, or **unset** (`null`) are excluded — the design explicitly
-allows outdoor areas to have no floor, and an unannotated environment is
-"unknown", never assumed indoor (PLAN-topology.md §1).
+registry `AreaEntry.floor_id is None`, **but only when the home actually uses
+floors** — i.e. some registry area is assigned a `floor_id` (D9, refined during
+implementation). A single-storey home that models no floors at all is never
+nagged. Areas with `environment` `outdoor`, `semi_outdoor`, or **unset**
+(`null`) are excluded — the design explicitly allows outdoor areas to have no
+floor, and an unannotated environment is "unknown", never assumed indoor
+(PLAN-topology.md §1).
+
+> **Refinement of ratified D9.** "indoor + `floor_id is None`" alone flags every
+> area in a home that has not adopted floors (very common), which is noise and
+> broke the frozen `test_health_ok_when_complete` fixture. Gating on "the home
+> uses floors" keeps the check meaningful without nagging. Flagged for the
+> maintainer.
 
 ### 3.3 `contradictory_bearings`
 
@@ -201,12 +210,26 @@ contradiction is revisited only if a future model stores per-area bearings.)
 
 ### 3.4 `exterior_on_non_outdoor_side`
 
-A non-orphaned registry area that has an `exterior_connection` whose `side` is
-set and whose `beyond[side] != outdoor` — i.e. a window/outside door placed on a
-side that is not open air (D11). Exterior connections **without** a `side` are
-skipped (nothing to check). This is the health-signal twin of the panel's
-window-placement constraint (PLAN-topology.md §1); it is surfaced, never
-hard-rejected at write time (that was decided in §4.7 of the Phase-2 plan).
+A non-orphaned registry area that has an `exterior_connection` which cannot
+physically sit where it is placed (D11, refined during implementation — see the
+note below): the connection's `side` is set **and** either `beyond[side] ==
+earth` (a buried wall — no opening of any kind is possible) **or**
+`beyond[side] == neighbor` **and** the connection is `glazed` (a window into a
+foreign unit). A **non-glazed door on a `neighbor` side is allowed** — that is
+the §2.5 apartment door to a shared stairwell, which the design explicitly
+blesses ("the hallway's `beyond.N: neighbor` marks the party wall around the
+door"). `beyond[side] == outdoor` and an **unset** side are never flagged.
+Exterior connections **without** a `side` are skipped (nothing to check). This
+is the health-signal twin of the panel's window-placement constraint
+(PLAN-topology.md §1); it is surfaced, never hard-rejected at write time
+(§4.7 of the Phase-2 plan).
+
+> **Refinement of ratified D11.** The originally-ratified D11 was
+> "`beyond[side] != outdoor`". Implementation revealed that flags the §2.5
+> apartment door (a legitimate door on a `neighbor` side) and turns the shipped
+> example home "unhealthy", breaking the frozen `test_health_ok_when_complete`.
+> The rule above is the minimal correction that keeps §2.5 clean while still
+> catching the physically-impossible cases. Flagged for the maintainer.
 
 ### 3.5 `status`
 
@@ -516,9 +539,9 @@ The sections above assume the recommended option.
 | D6  | `open_connections` entry shape                              | Keep the Phase-3-frozen `{edge_id, area_id, connection_index, source_entity}`.                                                                                                                                                                                                         | **Supersedes** PLAN-topology.md §1a's `{edge_id, area_a, area_b, source_entity}` sketch.                                                          |
 | D7  | Type of the four consistency-list items                     | `area_id` strings, sorted.                                                                                                                                                                                                                                                             | Matches the frozen `health` `items: string`.                                                                                                      |
 | D8  | `isolated_areas` — do exterior connections count?           | **No** — only non-orphaned interior edges provide connectivity.                                                                                                                                                                                                                        | Exterior openings face outside, not another area.                                                                                                 |
-| D9  | `indoor_areas_without_floor` scope                          | `environment == indoor` and registry `floor_id is None`; exclude outdoor/semi_outdoor/`null`.                                                                                                                                                                                          | Design allows outdoor floorless; null ≠ indoor.                                                                                                   |
+| D9  | `indoor_areas_without_floor` scope                          | `environment == indoor` and registry `floor_id is None`, **only when the home uses floors** (some area is floored); exclude outdoor/semi_outdoor/`null`. **Refined during implementation** (§3.2).                                                                                     | Original "indoor + floorless" nagged every area in a floors-less home and broke the frozen §2.5 test. Flagged for the maintainer.                 |
 | D10 | `contradictory_bearings` definition                         | Same-side interior-edge **and** `beyond` on one area (§3.3).                                                                                                                                                                                                                           | **Divergence from the design's literal "A north of B / B north of A"**, which the single-edge store cannot represent. Ratify or redefine.         |
-| D11 | `exterior_on_non_outdoor_side` scope                        | Exterior connection with `side` set and `beyond[side] != outdoor`; skip side-less exterior connections.                                                                                                                                                                                | Health twin of the panel window constraint; never a write-time reject.                                                                            |
+| D11 | `exterior_on_non_outdoor_side` scope                        | Exterior connection with `side` set and (`beyond[side] == earth` **or** `beyond[side] == neighbor` **and** `glazed`); a non-glazed door on a `neighbor` side is allowed; skip side-less. **Refined during implementation** (§3.4).                                                     | Original "`beyond != outdoor`" flagged the legitimate §2.5 apartment door and broke the frozen §2.5 test. Flagged for the maintainer.             |
 | D12 | Orphaned entries in query results                           | Excluded from neighbours/path/outdoor (present only in `read_hook` with `orphaned_at`).                                                                                                                                                                                                | Consistent with `derive_perimeter`.                                                                                                               |
 | D13 | `traversable` definition                                    | Any connection on the edge with `passage != none`.                                                                                                                                                                                                                                     | Drives `neighbors.traversable` and `path(traversable_only)`.                                                                                      |
 | D14 | `topology/path` default over traversable-only?              | Default `false` (walk all adjacency, incl. `{none, solid}`); opt in to `traversable_only`.                                                                                                                                                                                             | Adjacency ≠ walkability; consumers choose.                                                                                                        |
