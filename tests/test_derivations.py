@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from custom_components.topology.entity_utils.derivations import (
+    build_health,
     derive,
     derive_areas,
     derive_house,
@@ -12,7 +13,6 @@ from custom_components.topology.entity_utils.derivations import (
     effective_level,
 )
 from custom_components.topology.entity_utils.entity_ids import area_slug
-from custom_components.topology.websocket_api import _build_health
 from homeassistant.helpers import area_registry as ar, floor_registry as fr
 
 if TYPE_CHECKING:
@@ -72,7 +72,7 @@ async def test_derive_house_equals_health(
 
     snapshot = setup_integration.runtime_data.coordinator.data
     house = derive_house(snapshot, area_registry, floor_registry)
-    health = _build_health(snapshot, area_registry)
+    health = build_health(snapshot, area_registry)
     assert house.area_count == health["area_count"]
     assert house.annotated_count == health["annotated_count"]
     assert list(house.unannotated_areas) == health["unannotated_areas"]

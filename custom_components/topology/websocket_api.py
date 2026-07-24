@@ -45,9 +45,8 @@ from .data import (
     connection_to_dict,
 )
 from .entity_utils.derivations import (
-    annotation_counts,
+    build_health,
     connections_facing_outdoor,
-    derive_consistency,
     derive_perimeter,
     effective_level,
     is_perimeter_edge,
@@ -281,59 +280,6 @@ def _serialize_home_config(snapshot: TopologySnapshot) -> dict[str, Any]:
     }
 
 
-def _build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[str, Any]:
-    """Compute the consistency/health signal (§4.11); Phase-4 lists now filled.
-
-    The area counts and the four graph-consistency lists come from the shared
-    derivations (§7.2, §3) so the household sensor, this signal, and the read
-    hook never drift (decisions D6/D7).
-    """
-    registry_ids, unannotated_tuple, annotated_count = annotation_counts(snapshot, area_reg)
-    unannotated = list(unannotated_tuple)
-
-    orphaned_areas = sorted(a.area_id for a in snapshot.areas if a.orphaned_at is not None)
-    orphaned_edges = sorted(e.edge_id for e in snapshot.edges if e.orphaned_at is not None)
-    orphaned_floors = sorted(f.floor_id for f in snapshot.floors if f.orphaned_at is not None)
-    unknown_enum_values = [
-        {"scope": u.scope, "id": u.id, "field": u.field_name, "value": u.value} for u in snapshot.unknown_enum_values
-    ]
-
-    consistency = derive_consistency(snapshot, area_reg)
-    isolated_areas = list(consistency.isolated_areas)
-    indoor_areas_without_floor = list(consistency.indoor_areas_without_floor)
-    contradictory_bearings = list(consistency.contradictory_bearings)
-    exterior_on_non_outdoor_side = list(consistency.exterior_on_non_outdoor_side)
-
-    lists = [
-        unannotated,
-        orphaned_edges,
-        orphaned_areas,
-        orphaned_floors,
-        unknown_enum_values,
-        isolated_areas,
-        indoor_areas_without_floor,
-        contradictory_bearings,
-        exterior_on_non_outdoor_side,
-    ]
-    status = "warning" if any(lists) else "ok"
-
-    return {
-        "status": status,
-        "area_count": len(registry_ids),
-        "annotated_count": annotated_count,
-        "unannotated_areas": unannotated,
-        "orphaned_edges": orphaned_edges,
-        "orphaned_areas": orphaned_areas,
-        "orphaned_floors": orphaned_floors,
-        "unknown_enum_values": unknown_enum_values,
-        # Phase-4 graph-consistency lists (§3).
-        "isolated_areas": isolated_areas,
-        "indoor_areas_without_floor": indoor_areas_without_floor,
-        "contradictory_bearings": contradictory_bearings,
-        "exterior_on_non_outdoor_side": exterior_on_non_outdoor_side,
-    }
-
-
 def _validate_connection(connection: dict[str, Any], *, allow_inline_trust: bool) -> str | None:
     """Return an error code for an invalid connection payload, or None (§4)."""
     if connection.get("passage") not in _PASSAGE_VALUES:
@@ -433,7 +379,7 @@ async def ws_read_hook(
             "areas": _serialize_areas(snapshot, area_reg),
             "edges": _serialize_edges(snapshot, area_reg, floor_reg),
             "perimeter": derive_perimeter(snapshot, area_reg),
-            "health": _build_health(snapshot, area_reg),
+            "health": build_health(snapshot, area_reg),
         },
     )
 
@@ -450,7 +396,7 @@ async def ws_health(
     if runtime is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "No topology entry is loaded")
         return
-    connection.send_result(msg["id"], _build_health(runtime.coordinator.data, ar.async_get(hass)))
+    connection.send_result(msg["id"], build_health(runtime.coordinator.data, ar.async_get(hass)))
 
 
 @websocket_command({vol.Required("type"): "topology/subscribe_updates"})

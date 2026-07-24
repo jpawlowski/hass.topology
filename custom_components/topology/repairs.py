@@ -111,7 +111,7 @@ def async_reconcile_issues(
         placeholders={"count": str(unannotated_count), "threshold": str(threshold)},
     )
 
-    # Orphan count follows the same rule as ``_build_health`` (``orphaned_at``
+    # Orphan count follows the same rule as ``build_health`` (``orphaned_at``
     # set on an area, edge, or floor); the reconciler reuses it, it invents no
     # new rule (§4.1).
     orphan_count = (

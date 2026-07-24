@@ -21,7 +21,7 @@ from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers.redact import async_redact_data
 
 from .const import STORAGE_VERSION
-from .websocket_api import _build_health
+from .entity_utils.derivations import build_health
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -78,7 +78,7 @@ async def async_get_config_entry_diagnostics(
     edges = [_edge_out(edge, pseudo) for edge in snapshot.edges]
     floors = [_floor_out(override, pseudo) for override in snapshot.floors]
     unknown_enum_values = [_unknown_out(unknown, pseudo) for unknown in snapshot.unknown_enum_values]
-    health = _health_out(_build_health(snapshot, area_reg), pseudo)
+    health = _health_out(build_health(snapshot, area_reg), pseudo)
 
     payload: dict[str, Any] = {
         "meta": {
