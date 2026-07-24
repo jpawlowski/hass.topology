@@ -28,6 +28,8 @@ from .const import (
     CONF_PROJECT_TYPE,
     CONF_UNANNOTATED_REPAIR_THRESHOLD,
     DOMAIN,
+    ISSUE_STORE_FUTURE_VERSION,
+    LEARN_MORE_URL,
 )
 from .coordinator import TopologyCoordinator, TopologyRegistryWatcher
 from .data import TopologyRuntimeData
@@ -47,9 +49,6 @@ PLATFORMS: list[Platform] = [
 
 # Topology is configured via config entries only (no YAML configuration).
 CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
-
-_STORE_FUTURE_VERSION_ISSUE = "store_future_version"
-_LEARN_MORE_URL = "https://github.com/jpawlowski/hass.topology"
 
 
 async def async_setup(hass: HomeAssistant, config: dict) -> bool:
@@ -81,11 +80,11 @@ async def async_setup_entry(
         ir.async_create_issue(
             hass,
             DOMAIN,
-            _STORE_FUTURE_VERSION_ISSUE,
+            ISSUE_STORE_FUTURE_VERSION,
             is_fixable=False,
             severity=ir.IssueSeverity.ERROR,
-            translation_key=_STORE_FUTURE_VERSION_ISSUE,
-            learn_more_url=_LEARN_MORE_URL,
+            translation_key=ISSUE_STORE_FUTURE_VERSION,
+            learn_more_url=LEARN_MORE_URL,
             translation_placeholders={"version": str(err.version)},
         )
         raise ConfigEntryError("topology store was written by a newer version") from err
@@ -95,7 +94,7 @@ async def async_setup_entry(
         raise ConfigEntryNotReady("topology store could not be read") from err
 
     # A successful load clears any stale future-version repair.
-    ir.async_delete_issue(hass, DOMAIN, _STORE_FUTURE_VERSION_ISSUE)
+    ir.async_delete_issue(hass, DOMAIN, ISSUE_STORE_FUTURE_VERSION)
 
     coordinator = TopologyCoordinator(hass, entry, store)
 
