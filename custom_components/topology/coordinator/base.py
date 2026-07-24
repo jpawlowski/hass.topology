@@ -4,8 +4,9 @@ Core coordinator implementation for topology.
 Topology is registry-driven and calculated (ADR "Coordinator Role"): the
 coordinator does not poll. It owns the immutable ``TopologySnapshot`` (as
 ``DataUpdateCoordinator`` data), publishes new snapshots to entities, fires the
-``topology_updated`` bus event on every change (§4.13), and keeps the
-unknown-enum repair issue in sync with the loaded payload (§2.4 rule 2).
+``topology_updated`` bus event on every change (§4.13), and reconciles the
+repair-issue registry through ``repairs.async_reconcile_issues`` on every seed
+and publish (Phase 5, §4.2).
 """
 
 from __future__ import annotations
@@ -14,8 +15,9 @@ from typing import TYPE_CHECKING
 
 from custom_components.topology.const import DOMAIN, EVENT_TOPOLOGY_UPDATED, LOGGER
 from custom_components.topology.entity_utils.derivations import derive
+from custom_components.topology.repairs import async_reconcile_issues
 from homeassistant.core import callback
-from homeassistant.helpers import area_registry as ar, floor_registry as fr, issue_registry as ir
+from homeassistant.helpers import area_registry as ar, floor_registry as fr
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 if TYPE_CHECKING:
@@ -24,8 +26,6 @@ if TYPE_CHECKING:
     from custom_components.topology.data import TopologyConfigEntry, TopologyDerived, TopologySnapshot
     from custom_components.topology.store import TopologyStore
     from homeassistant.core import HomeAssistant
-
-_UNKNOWN_ENUM_ISSUE = "unknown_enum_after_downgrade"
 
 
 class TopologyCoordinator(DataUpdateCoordinator["TopologySnapshot"]):
@@ -66,7 +66,7 @@ class TopologyCoordinator(DataUpdateCoordinator["TopologySnapshot"]):
         """Seed the initial snapshot at setup (no bus event fired)."""
         self.derived = self._derive(snapshot)
         self.async_set_updated_data(snapshot)
-        self._async_reconcile_unknown_enum_issue(snapshot)
+        async_reconcile_issues(self.hass, snapshot, self.derived)
 
     @callback
     def async_publish(
@@ -85,26 +85,4 @@ class TopologyCoordinator(DataUpdateCoordinator["TopologySnapshot"]):
         self.derived = self._derive(snapshot)
         self.async_set_updated_data(snapshot)
         self.hass.bus.async_fire(EVENT_TOPOLOGY_UPDATED, {"change": change, "ids": list(ids)})
-        self._async_reconcile_unknown_enum_issue(snapshot)
-
-    @callback
-    def _async_reconcile_unknown_enum_issue(self, snapshot: TopologySnapshot) -> None:
-        """Create or clear the unknown-enum repair issue for this snapshot (§2.4)."""
-        unknowns = snapshot.unknown_enum_values
-        if not unknowns:
-            ir.async_delete_issue(self.hass, DOMAIN, _UNKNOWN_ENUM_ISSUE)
-            return
-        first = unknowns[0]
-        ir.async_create_issue(
-            self.hass,
-            DOMAIN,
-            _UNKNOWN_ENUM_ISSUE,
-            is_fixable=False,
-            severity=ir.IssueSeverity.WARNING,
-            translation_key=_UNKNOWN_ENUM_ISSUE,
-            translation_placeholders={
-                "field": first.field_name,
-                "value": first.value,
-                "count": str(len(unknowns)),
-            },
-        )
+        async_reconcile_issues(self.hass, snapshot, self.derived)

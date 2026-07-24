@@ -11,9 +11,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.topology.const import DOMAIN, STORAGE_KEY
 from homeassistant.helpers import area_registry as ar, entity_registry as er, floor_registry as fr
+from homeassistant.setup import async_setup_component
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
+
+    from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
     from homeassistant.core import HomeAssistant
 
@@ -137,3 +140,91 @@ def _load_payload_into_store(entry: MockConfigEntry, payload: dict[str, Any]) ->
 def load_payload() -> Callable[[MockConfigEntry, dict[str, Any]], None]:
     """Return a helper that injects a full store payload into a set-up entry."""
     return _load_payload_into_store
+
+
+# --- Phase 5 repair fixtures (PLAN-topology-phase5.md §8) -------------------
+
+
+def _home_config(threshold: int = 3) -> dict[str, Any]:
+    """Return a default home_config block with a given repair threshold."""
+    return {
+        "occupancy_extent": "whole_property",
+        "projection_toggles": {"environment": False, "type": False, "trust": False},
+        "imports_done_at": {"aliases": None, "labels": None},
+        "unannotated_repair_threshold": threshold,
+    }
+
+
+@pytest.fixture
+def unannotated_payload(hass: HomeAssistant) -> dict[str, Any]:
+    """A store payload plus a registry of three unannotated areas (§8).
+
+    Three areas (``alpha``/``bravo``/``charlie``) exist in the registry with no
+    store annotation, so the derived ``unannotated_areas`` count is three — at
+    the default threshold — and the ``unannotated_areas_threshold`` repair
+    fires once the payload is loaded.
+    """
+    registry = ar.async_get(hass)
+    for name in ("alpha", "bravo", "charlie"):
+        registry.async_create(name)
+    return {
+        "schema_version": 1,
+        "home_config": _home_config(threshold=3),
+        "areas": {},
+        "edges": {},
+        "floors": {},
+    }
+
+
+@pytest.fixture
+def orphaned_payload() -> dict[str, Any]:
+    """A payload whose ``wohnzimmer`` area and one edge already carry ``orphaned_at`` (§8).
+
+    ``flur`` stays live; ``wohnzimmer`` and the ``flur::wohnzimmer`` edge are
+    flagged orphaned with a past timestamp, so the orphan repair fires and a
+    ``async_purge_orphans(utcnow())`` removes them.
+    """
+    orphaned_at = "2026-07-23T10:00:00+00:00"
+    return {
+        "schema_version": 1,
+        "home_config": _home_config(threshold=3),
+        "areas": {
+            "flur": {
+                "type": "hallway",
+                "environment": "indoor",
+                "trust": "private",
+                "updated_at": "2026-07-23T10:00:00+00:00",
+            },
+            "wohnzimmer": {
+                "type": "living",
+                "environment": "indoor",
+                "trust": "private",
+                "updated_at": "2026-07-23T10:01:00+00:00",
+                "orphaned_at": orphaned_at,
+            },
+        },
+        "edges": {
+            "flur::wohnzimmer": {
+                "area_a": "flur",
+                "area_b": "wohnzimmer",
+                "connections": [{"passage": "level", "barrier": "door"}],
+                "created_at": "2026-07-23T10:05:00+00:00",
+                "orphaned_at": orphaned_at,
+            }
+        },
+        "floors": {},
+    }
+
+
+@pytest.fixture
+async def repairs_client(hass: HomeAssistant, hass_client: ClientSessionGenerator) -> Any:
+    """Set up the repairs component and return an HTTP client for its fix-flow API.
+
+    Setting up the ``repairs`` component processes every loaded integration's
+    repairs platform (``async_process_repairs_platforms``), so topology's
+    ``async_create_fix_flow`` is registered. The returned client drives
+    ``/api/repairs/issues/fix`` for the orphan purge flow (§8).
+    """
+    assert await async_setup_component(hass, "repairs", {})
+    await hass.async_block_till_done()
+    return await hass_client()
