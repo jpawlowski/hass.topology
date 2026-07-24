@@ -11,6 +11,7 @@ import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.topology.const import (
@@ -145,6 +146,15 @@ async def test_import_oneshot_at_setup(
     assert await hass.config_entries.async_setup(entry_b.entry_id)
     await hass.async_block_till_done()
     assert _annotation(entry_b, import_payload["kitchen"]) is None
+
+
+async def test_mark_import_done_rejects_unknown_source(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+) -> None:
+    """async_mark_import_done rejects a source outside the known set (robustness)."""
+    with pytest.raises(ValueError, match="unknown import source"):
+        await setup_integration.runtime_data.store.async_mark_import_done("bogus")
 
 
 async def test_import_service_reruns(
