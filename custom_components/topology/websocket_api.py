@@ -35,7 +35,6 @@ from .const import (
 from .data import (
     AREA_TYPE_CATALOG,
     CONNECTION_PRESETS,
-    TRUST_ORDER,
     Barrier,
     BeyondClass,
     CardinalSide,
@@ -45,6 +44,7 @@ from .data import (
     Trust,
     connection_to_dict,
 )
+from .entity_utils.derivations import annotation_counts, derive_perimeter, effective_level, is_perimeter_edge
 
 if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
@@ -113,23 +113,6 @@ def _runtime(hass: HomeAssistant) -> TopologyRuntimeData | None:
     return None
 
 
-def _effective_level(
-    area_id: str,
-    area_reg: AreaRegistry,
-    floor_reg: FloorRegistry,
-    overrides: dict[str, FloorOverride],
-) -> int | None:
-    """Return the effective floor level of an area (registry wins, else override)."""
-    area = area_reg.async_get_area(area_id)
-    if area is None or area.floor_id is None:
-        return None
-    floor = floor_reg.async_get_floor(area.floor_id)
-    if floor is not None and floor.level is not None:
-        return floor.level
-    override = overrides.get(area.floor_id)
-    return override.level_override if override is not None else None
-
-
 def _connection_out(connection: object) -> ConnectionDict:
     """Serialize a domain Connection; unknown enums already read as null."""
     return connection_to_dict(connection)  # type: ignore[arg-type]
@@ -171,8 +154,8 @@ def _edge_out(
     overrides: dict[str, FloorOverride],
 ) -> dict[str, Any]:
     """Serialize an edge with derived axis + is_perimeter (§4 edge_out)."""
-    level_a = _effective_level(edge.area_a, area_reg, floor_reg, overrides)
-    level_b = _effective_level(edge.area_b, area_reg, floor_reg, overrides)
+    level_a = effective_level(edge.area_a, area_reg, floor_reg, overrides)
+    level_b = effective_level(edge.area_b, area_reg, floor_reg, overrides)
     if level_a is None or level_b is None:
         axis = "unknown"
     elif level_a == level_b:
@@ -184,20 +167,11 @@ def _edge_out(
         "area_a": edge.area_a,
         "area_b": edge.area_b,
         "axis": axis,
-        "is_perimeter": _is_perimeter_edge(edge, area_trust),
+        "is_perimeter": is_perimeter_edge(edge, area_trust),
         "connections": [_connection_out(connection) for connection in edge.connections],
         "orphaned_at": edge.orphaned_at,
         "created_at": edge.created_at,
     }
-
-
-def _is_perimeter_edge(edge: Edge, area_trust: dict[str, Trust | None]) -> bool:
-    """Return whether an interior edge is a perimeter (trust delta or override)."""
-    trust_a = area_trust.get(edge.area_a)
-    trust_b = area_trust.get(edge.area_b)
-    if trust_a is not None and trust_b is not None and TRUST_ORDER[trust_a] != TRUST_ORDER[trust_b]:
-        return True
-    return any(connection.perimeter_override for connection in edge.connections)
 
 
 def _annotations_by_id(snapshot: TopologySnapshot) -> dict[str, AreaAnnotation]:
@@ -295,57 +269,18 @@ def _serialize_home_config(snapshot: TopologySnapshot) -> dict[str, Any]:
     }
 
 
-def _derive_perimeter(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list[dict[str, Any]]:
-    """Derive the perimeter-connection list (§4.10). Orphaned entries excluded."""
-    perimeter: list[dict[str, Any]] = []
-    area_trust = {annotation.area_id: annotation.trust for annotation in snapshot.areas}
-
-    # Exterior connections: trust vs inline_trust (absent => public).
-    for annotation in snapshot.areas:
-        if annotation.orphaned_at is not None:
-            continue
-        for index, connection in enumerate(annotation.exterior_connections):
-            inline = connection.inline_trust or Trust.PUBLIC
-            owner_trust = annotation.trust
-            if owner_trust is None or TRUST_ORDER[owner_trust] != TRUST_ORDER[inline]:
-                perimeter.append(
-                    {
-                        "source": "exterior",
-                        "edge_id": None,
-                        "area_id": annotation.area_id,
-                        "connection_index": index,
-                        "sensor_entity_id": connection.sensor_entity_id,
-                    }
-                )
-
-    # Interior edges whose sides differ in trust (or carry perimeter_override).
-    for edge in snapshot.edges:
-        if edge.orphaned_at is not None or not _is_perimeter_edge(edge, area_trust):
-            continue
-        for index, connection in enumerate(edge.connections):
-            perimeter.append(
-                {
-                    "source": "edge",
-                    "edge_id": edge.edge_id,
-                    "area_id": edge.area_a,
-                    "connection_index": index,
-                    "sensor_entity_id": connection.sensor_entity_id,
-                }
-            )
-
-    return perimeter
-
-
 def _build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[str, Any]:
-    """Compute the consistency/health signal (§4.11). Phase-4 lists stay empty."""
-    registry_ids = {area.id for area in area_reg.async_list_areas()}
-    annotation_ids = {annotation.area_id for annotation in snapshot.areas}
+    """Compute the consistency/health signal (§4.11). Phase-4 lists stay empty.
 
-    unannotated = sorted(registry_ids - annotation_ids)
+    The area counts come from the shared ``annotation_counts`` derivation (§7.2)
+    so the household sensor and this signal never drift (decision D6).
+    """
+    registry_ids, unannotated_tuple, annotated_count = annotation_counts(snapshot, area_reg)
+    unannotated = list(unannotated_tuple)
+
     orphaned_areas = sorted(a.area_id for a in snapshot.areas if a.orphaned_at is not None)
     orphaned_edges = sorted(e.edge_id for e in snapshot.edges if e.orphaned_at is not None)
     orphaned_floors = sorted(f.floor_id for f in snapshot.floors if f.orphaned_at is not None)
-    annotated_count = len([a for a in snapshot.areas if a.area_id in registry_ids and a.orphaned_at is None])
     unknown_enum_values = [
         {"scope": u.scope, "id": u.id, "field": u.field_name, "value": u.value} for u in snapshot.unknown_enum_values
     ]
@@ -474,7 +409,7 @@ async def ws_read_hook(
             },
             "areas": _serialize_areas(snapshot, area_reg),
             "edges": _serialize_edges(snapshot, area_reg, floor_reg),
-            "perimeter": _derive_perimeter(snapshot, area_reg),
+            "perimeter": derive_perimeter(snapshot, area_reg),
             "health": _build_health(snapshot, area_reg),
         },
     )

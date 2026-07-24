@@ -13,14 +13,15 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from custom_components.topology.const import DOMAIN, EVENT_TOPOLOGY_UPDATED, LOGGER
+from custom_components.topology.entity_utils.derivations import derive
 from homeassistant.core import callback
-from homeassistant.helpers import issue_registry as ir
+from homeassistant.helpers import area_registry as ar, floor_registry as fr, issue_registry as ir
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    from custom_components.topology.data import TopologyConfigEntry, TopologySnapshot
+    from custom_components.topology.data import TopologyConfigEntry, TopologyDerived, TopologySnapshot
     from custom_components.topology.store import TopologyStore
     from homeassistant.core import HomeAssistant
 
@@ -52,10 +53,18 @@ class TopologyCoordinator(DataUpdateCoordinator["TopologySnapshot"]):
             update_interval=None,
         )
         self.store = store
+        # Registry-merged projection consumed by entities (§7.3). Recomputed on
+        # every seed/publish; initialized now so the attribute is always set.
+        self.derived: TopologyDerived = self._derive(store.snapshot())
+
+    def _derive(self, snapshot: TopologySnapshot) -> TopologyDerived:
+        """Merge the registries into the entity-facing projection (§7.3)."""
+        return derive(snapshot, ar.async_get(self.hass), fr.async_get(self.hass))
 
     @callback
     def async_seed(self, snapshot: TopologySnapshot) -> None:
         """Seed the initial snapshot at setup (no bus event fired)."""
+        self.derived = self._derive(snapshot)
         self.async_set_updated_data(snapshot)
         self._async_reconcile_unknown_enum_issue(snapshot)
 
@@ -69,8 +78,11 @@ class TopologyCoordinator(DataUpdateCoordinator["TopologySnapshot"]):
         """Push a new snapshot, fire the bus event, and reconcile repairs.
 
         ``change`` and ``ids`` mirror the WebSocket subscription event (§4.12);
-        the bus event (§4.13) is what in-process consumers listen to.
+        the bus event (§4.13) is what in-process consumers listen to. The
+        registry-merged projection (§7.3) is refreshed before entities are
+        notified so ``coordinator.derived`` is consistent with the new snapshot.
         """
+        self.derived = self._derive(snapshot)
         self.async_set_updated_data(snapshot)
         self.hass.bus.async_fire(EVENT_TOPOLOGY_UPDATED, {"change": change, "ids": list(ids)})
         self._async_reconcile_unknown_enum_issue(snapshot)
