@@ -10,10 +10,10 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.topology.const import DOMAIN, STORAGE_KEY
-from homeassistant.helpers import area_registry as ar, floor_registry as fr
+from homeassistant.helpers import area_registry as ar, entity_registry as er, floor_registry as fr
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Awaitable, Callable, Iterator
 
     from homeassistant.core import HomeAssistant
 
@@ -76,6 +76,36 @@ def floor_registry(hass: HomeAssistant) -> fr.FloorRegistry:
     registry = fr.async_get(hass)
     registry.async_create("Ground", level=0)
     return registry
+
+
+@pytest.fixture
+def two_floor_registry(hass: HomeAssistant) -> fr.FloorRegistry:
+    """Floor registry with two floors at levels 0 and 1 (§9 axis/floor tests)."""
+    registry = fr.async_get(hass)
+    registry.async_create("Ground", level=0)
+    registry.async_create("Upper", level=1)
+    return registry
+
+
+@pytest.fixture
+def enable_all(hass: HomeAssistant) -> Callable[[MockConfigEntry], Awaitable[None]]:
+    """Return a helper that enables all disabled topology entities and reloads.
+
+    Per-area sensors are disabled by default (§3.3); enabling them requires a
+    reload. Tests inject annotations *after* enabling (store mutation + publish
+    drives the live entity state) because the test harness mocks storage in
+    memory and does not persist across a reload.
+    """
+
+    async def _enable(entry: MockConfigEntry) -> None:
+        registry = er.async_get(hass)
+        for entity in er.async_entries_for_config_entry(registry, entry.entry_id):
+            if entity.disabled:
+                registry.async_update_entity(entity.entity_id, disabled_by=None)
+        await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    return _enable
 
 
 async def async_setup_entry_for(hass: HomeAssistant, entry: MockConfigEntry) -> MockConfigEntry:
