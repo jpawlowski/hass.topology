@@ -140,10 +140,13 @@ async def test_ws_connections_facing_outdoor_edge(
     hass_ws_client: WebSocketGenerator,
 ) -> None:
     """An interior edge onto a modelled outdoor area is returned (§4.3, D15)."""
-    garten = area_registry.async_create("Garten")
+    # "aussen" sorts before "flur", so it becomes edge.area_a — the entry must
+    # still be attributed to the room (flur), not the outdoor area (r3645648771).
+    aussen = area_registry.async_create("Aussen")
+    assert aussen.id < "flur"
     store = setup_integration.runtime_data.store
-    await store.async_update_area(garten.id, {"environment": "outdoor"})
-    await store.async_upsert_edge("flur", garten.id, [{"passage": "level", "barrier": "door", "glazed": True}])
+    await store.async_update_area(aussen.id, {"environment": "outdoor"})
+    await store.async_upsert_edge("flur", aussen.id, [{"passage": "level", "barrier": "door", "glazed": True}])
     setup_integration.runtime_data.coordinator.async_publish(store.snapshot(), "edge", ["updated"])
     await hass.async_block_till_done()
 
@@ -151,6 +154,7 @@ async def test_ws_connections_facing_outdoor_edge(
     response = await _query(client, {"type": "topology/connections_facing_outdoor"})
     edge_entries = [c for c in response["result"]["connections"] if c["source"] == "edge"]
     assert len(edge_entries) == 1
+    assert edge_entries[0]["area_id"] == "flur"  # the room, not the outdoor area
     assert edge_entries[0]["barrier"] == "door"
     assert edge_entries[0]["passage"] == "level"
 

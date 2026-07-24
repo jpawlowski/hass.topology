@@ -297,15 +297,19 @@ def connections_facing_outdoor(snapshot: TopologySnapshot, area_reg: AreaRegistr
             if connection.side is not None and beyond.get(connection.side.value) is BeyondClass.OUTDOOR:
                 result.append(_facing_entry("exterior", None, annotation.area_id, index, connection))
 
-    # Interior edges with exactly one environment==outdoor endpoint.
+    # Interior edges with exactly one environment==outdoor endpoint. Attribute
+    # the entry to the NON-outdoor endpoint — the room whose opening faces
+    # outside — not edge.area_a (which is just the lexicographically smaller id
+    # and may be the outdoor area, e.g. balcony::bedroom). PR-review r3645648771.
     for edge in snapshot.edges:
         if edge.orphaned_at is not None:
             continue
         outdoor_a = area_env.get(edge.area_a) is Environment.OUTDOOR
         outdoor_b = area_env.get(edge.area_b) is Environment.OUTDOOR
         if outdoor_a is not outdoor_b:
+            room_id = edge.area_b if outdoor_a else edge.area_a
             for index, connection in enumerate(edge.connections):
-                result.append(_facing_entry("edge", edge.edge_id, edge.area_a, index, connection))
+                result.append(_facing_entry("edge", edge.edge_id, room_id, index, connection))
 
     return result
 
