@@ -96,6 +96,37 @@
     "unknown_enum_after_downgrade": {
       "title": "Topology store has unrecognized values",
       "description": "The topology store contains at least one value this version does not recognize (for example {field} = \"{value}\"), likely from a newer release. {count} such value(s) are shown as unknown and are preserved untouched; upgrade the integration again to restore them."
+    },
+    "unannotated_areas_threshold": {
+      "title": "Several areas are not annotated",
+      "description": "{count} area(s) have no topology annotation, at or above your configured threshold of {threshold}. Annotate them from the topology panel so the model reflects your home. This suggestion clears once fewer than {threshold} areas remain unannotated."
+    },
+    "orphaned_registry_entries": {
+      "title": "Topology has orphaned entries",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Purge orphaned topology entries",
+            "description": "{count} topology entr(y/ies) reference areas or floors that were removed from the registry. They are kept for a short undo window in case you restore the area. Select Submit to purge them now, or dismiss this to let the daily cleanup remove them after the window elapses."
+          }
+        }
+      }
+    },
+    "isolated_areas": {
+      "title": "Some areas are not connected",
+      "description": "{count} area(s) have no interior connection to any other area, so they are isolated in the topology graph. Add a connection from the topology panel. This suggestion clears once every area is connected."
+    },
+    "indoor_areas_without_floor": {
+      "title": "Indoor areas have no floor",
+      "description": "{count} indoor area(s) are not assigned to a floor while the rest of your home uses floors. Assign a floor in Home Assistant so the topology model is complete. This suggestion clears once every indoor area has a floor."
+    },
+    "contradictory_bearings": {
+      "title": "Contradictory wall bearings",
+      "description": "{count} area(s) use the same cardinal side both for an interior connection and for a beyond declaration, which cannot both be true. Review the affected sides in the topology panel. This suggestion clears once the contradiction is resolved."
+    },
+    "exterior_on_non_outdoor_side": {
+      "title": "Exterior opening on a non-outdoor side",
+      "description": "{count} area(s) declare an exterior opening on a side that faces earth or a glazed opening onto a neighbor, which is not physically possible. Review the affected openings in the topology panel. This suggestion clears once the openings are corrected."
     }
   }
 }
