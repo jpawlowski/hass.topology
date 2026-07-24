@@ -1,0 +1,168 @@
+# serializer version: 1
+# name: test_diagnostics_snapshot
+  dict({
+    'areas': list([
+      dict({
+        'area_id': 'area_1',
+        'beyond': dict({
+          'N': 'neighbor',
+        }),
+        'environment': 'indoor',
+        'exterior_connections': list([
+          dict({
+            'barrier': 'door',
+            'inline_trust': 'shared',
+            'passage': 'level',
+            'preset_name': 'outside_door',
+            'sensor_entity_id': 'binary_sensor.sensor_1',
+            'side': 'N',
+          }),
+        ]),
+        'orphaned_at': None,
+        'trust': 'private',
+        'type': '**REDACTED**',
+        'updated_at': '2026-07-23T10:00:00+00:00',
+      }),
+      dict({
+        'area_id': 'area_2',
+        'beyond': dict({
+          'S': 'outdoor',
+          'W': 'outdoor',
+        }),
+        'environment': 'indoor',
+        'exterior_connections': list([
+          dict({
+            'barrier': 'door',
+            'glazed': True,
+            'passage': 'none',
+            'preset_name': 'window',
+            'sensor_entity_id': 'binary_sensor.sensor_2',
+            'side': 'S',
+          }),
+        ]),
+        'orphaned_at': None,
+        'trust': 'private',
+        'type': '**REDACTED**',
+        'updated_at': '2026-07-23T10:01:00+00:00',
+      }),
+      dict({
+        'area_id': 'area_3',
+        'beyond': dict({
+          'S': 'outdoor',
+        }),
+        'environment': 'indoor',
+        'exterior_connections': list([
+          dict({
+            'barrier': 'door',
+            'glazed': True,
+            'passage': 'none',
+            'preset_name': 'window',
+            'side': 'S',
+          }),
+        ]),
+        'orphaned_at': None,
+        'trust': 'private',
+        'type': '**REDACTED**',
+        'updated_at': '2026-07-23T10:02:00+00:00',
+      }),
+    ]),
+    'edges': list([
+      dict({
+        'area_a': 'area_1',
+        'area_b': 'area_2',
+        'connections': list([
+          dict({
+            'barrier': 'door',
+            'passage': 'level',
+            'preset_name': 'interior_door',
+          }),
+        ]),
+        'created_at': '2026-07-23T10:05:00+00:00',
+        'edge_id': 'area_1::area_2',
+        'orphaned_at': None,
+      }),
+      dict({
+        'area_a': 'area_1',
+        'area_b': 'area_3',
+        'connections': list([
+          dict({
+            'barrier': 'door',
+            'passage': 'level',
+            'preset_name': 'interior_door',
+          }),
+        ]),
+        'created_at': '2026-07-23T10:05:30+00:00',
+        'edge_id': 'area_1::area_3',
+        'orphaned_at': None,
+      }),
+      dict({
+        'area_a': 'area_3',
+        'area_b': 'area_2',
+        'connections': list([
+          dict({
+            'barrier': 'open',
+            'passage': 'level',
+            'preset_name': 'open_passage',
+          }),
+        ]),
+        'created_at': '2026-07-23T10:06:00+00:00',
+        'edge_id': 'area_3::area_2',
+        'orphaned_at': None,
+      }),
+    ]),
+    'floors': list([
+      dict({
+        'floor_id': 'floor_1',
+        'level_override': 3,
+        'orphaned_at': None,
+        'updated_at': '2026-07-23T10:03:00+00:00',
+      }),
+    ]),
+    'health': dict({
+      'annotated_count': 3,
+      'area_count': 3,
+      'contradictory_bearings': list([
+      ]),
+      'exterior_on_non_outdoor_side': list([
+      ]),
+      'indoor_areas_without_floor': list([
+      ]),
+      'isolated_areas': list([
+      ]),
+      'orphaned_areas': list([
+      ]),
+      'orphaned_edges': list([
+      ]),
+      'orphaned_floors': list([
+      ]),
+      'status': 'ok',
+      'unannotated_areas': list([
+      ]),
+      'unknown_enum_values': list([
+      ]),
+    }),
+    'home_config': dict({
+      'imports_done_at': dict({
+        'aliases': None,
+        'labels': None,
+      }),
+      'occupancy_extent': 'unit_within_building',
+      'projection_toggles': dict({
+        'environment': False,
+        'trust': False,
+        'type': False,
+      }),
+      'unannotated_repair_threshold': 3,
+    }),
+    'meta': dict({
+      'area_count': 3,
+      'edge_count': 3,
+      'floor_count': 1,
+      'pseudonymized': True,
+      'schema_version': 1,
+      'unknown_enum_count': 0,
+    }),
+    'unknown_enum_values': list([
+    ]),
+  })
+# ---

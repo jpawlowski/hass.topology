@@ -10,12 +10,14 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.topology.const import DOMAIN, STORAGE_KEY
-from homeassistant.helpers import area_registry as ar, entity_registry as er, floor_registry as fr
+from homeassistant.core import Context
+from homeassistant.helpers import area_registry as ar, entity_registry as er, floor_registry as fr, label_registry as lr
 from homeassistant.setup import async_setup_component
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable, Iterator
 
+    from pytest_homeassistant_custom_component.common import MockUser
     from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
     from homeassistant.core import HomeAssistant
@@ -213,6 +215,54 @@ def orphaned_payload() -> dict[str, Any]:
             }
         },
         "floors": {},
+    }
+
+
+# --- Phase 6 service / projection / import fixtures (PLAN-topology-phase6.md §6) --
+
+
+@pytest.fixture
+def label_registry(hass: HomeAssistant) -> lr.LabelRegistry:
+    """Return the label registry (projection + label-import tests)."""
+    return lr.async_get(hass)
+
+
+@pytest.fixture
+def admin_context(hass_admin_user: MockUser) -> Context:
+    """Return a Context for an admin user (admin-gated service calls, A.1)."""
+    return Context(user_id=hass_admin_user.id)
+
+
+@pytest.fixture
+def non_admin_context(hass_read_only_user: MockUser) -> Context:
+    """Return a Context for a non-admin user (rejected by the admin gate, A.1)."""
+    return Context(user_id=hass_read_only_user.id)
+
+
+@pytest.fixture
+def import_payload(hass: HomeAssistant) -> dict[str, str]:
+    """Create a registry that seeds a known import result (§2.7.1).
+
+    ``kitchen`` — name slug matches ``AREA_TYPE_CATALOG`` → type ``kitchen``.
+    ``bedroom`` — alias ``Bedroom`` matches → type ``bedroom`` + cascade.
+    ``shed`` — user labels ``outdoor`` (environment) + ``garage`` (type).
+    ``prefilled`` — already carries a store type, so import must not touch it.
+    Returns the created area ids by role.
+    """
+    area_reg = ar.async_get(hass)
+    label_reg = lr.async_get(hass)
+    kitchen = area_reg.async_create("Kitchen")
+    bedroom = area_reg.async_create("Master", aliases={"Bedroom"})
+    env_label = label_reg.async_create("outdoor")
+    type_label = label_reg.async_create("garage")
+    shed = area_reg.async_create("Shed")
+    area_reg.async_update(shed.id, labels={env_label.label_id, type_label.label_id})
+    prefilled = area_reg.async_create("Studio")
+    return {
+        "kitchen": kitchen.id,
+        "bedroom": bedroom.id,
+        "shed": shed.id,
+        "prefilled": prefilled.id,
     }
 
 
