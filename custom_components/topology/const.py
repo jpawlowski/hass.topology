@@ -27,6 +27,24 @@ ORPHAN_UNDO_WINDOW = timedelta(hours=72)
 # user-configurable via the config flow (§5, decision D10).
 DEFAULT_UNANNOTATED_REPAIR_THRESHOLD = 3
 
+# --- repair issues (Phase 5, PLAN-topology-phase5.md §2) --------------------
+# Shared learn-more target for every topology repair card. Per-issue doc
+# anchors are deferred to the Phase 8 user docs (decision D11); until then all
+# cards point at the repository.
+LEARN_MORE_URL = "https://github.com/jpawlowski/hass.topology"
+
+# One issue id per issue class (§2); ``translation_key == issue_id`` throughout
+# (HA convention). Two are pre-existing (kept, now reconciled through the single
+# path in ``repairs.py``), six are new.
+ISSUE_STORE_FUTURE_VERSION = "store_future_version"
+ISSUE_UNKNOWN_ENUM = "unknown_enum_after_downgrade"
+ISSUE_UNANNOTATED_THRESHOLD = "unannotated_areas_threshold"
+ISSUE_ORPHANED_ENTRIES = "orphaned_registry_entries"
+ISSUE_ISOLATED_AREAS = "isolated_areas"
+ISSUE_INDOOR_WITHOUT_FLOOR = "indoor_areas_without_floor"
+ISSUE_CONTRADICTORY_BEARINGS = "contradictory_bearings"
+ISSUE_EXTERIOR_NON_OUTDOOR = "exterior_on_non_outdoor_side"
+
 # --- events (§4.13) --------------------------------------------------------
 # Fired on every store mutation and registry-driven change; payload mirrors the
 # WebSocket subscription event (§4.12).
