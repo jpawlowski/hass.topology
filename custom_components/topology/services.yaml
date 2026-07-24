@@ -1,2 +1,156 @@
-# Describes the format for available services for topology
-# No service actions until Phase 6.
+# Describes the format for available services for topology (Phase 6, §2/§5).
+# Field names, descriptions, and selector option labels are translated via
+# translations/en.json (services + selector blocks).
+
+annotate_area:
+  fields:
+    area_id:
+      required: true
+      selector:
+        area:
+    type:
+      selector:
+        select:
+          translation_key: area_type
+          custom_value: true
+          options:
+            - bedroom
+            - living
+            - kitchen
+            - dining
+            - bathroom
+            - hallway
+            - office
+            - utility
+            - storage
+            - garage
+            - balcony
+            - terrace
+            - outdoor
+    environment:
+      selector:
+        select:
+          translation_key: environment
+          options:
+            - indoor
+            - outdoor
+            - semi_outdoor
+    trust:
+      selector:
+        select:
+          translation_key: trust
+          options:
+            - private
+            - shared
+            - public
+
+declare_connection:
+  fields:
+    area_a:
+      required: true
+      selector:
+        area:
+    area_b:
+      required: true
+      selector:
+        area:
+    preset:
+      required: true
+      selector:
+        select:
+          translation_key: connection_preset
+          options:
+            - interior_door
+            - open_passage
+            - shared_wall
+            - open_stair
+            - enclosed_stair
+            - lift
+            - loft_ladder
+            - ramp
+            - window
+            - outside_door
+    side:
+      selector:
+        select:
+          options:
+            - N
+            - E
+            - S
+            - W
+    glazed:
+      selector:
+        boolean:
+    sensor:
+      selector:
+        entity:
+          domain: binary_sensor
+
+set_beyond:
+  fields:
+    area_id:
+      required: true
+      selector:
+        area:
+    side:
+      required: true
+      selector:
+        select:
+          options:
+            - N
+            - E
+            - S
+            - W
+    beyond:
+      selector:
+        select:
+          translation_key: beyond
+          options:
+            - outdoor
+            - neighbor
+            - earth
+
+set_exterior:
+  fields:
+    area_id:
+      required: true
+      selector:
+        area:
+    connections:
+      required: true
+      selector:
+        object:
+
+set_floor_level:
+  fields:
+    floor_id:
+      required: true
+      selector:
+        floor:
+    level:
+      selector:
+        number:
+          mode: box
+
+project_labels:
+  fields:
+    scope:
+      selector:
+        select:
+          translation_key: projection_scope
+          options:
+            - all
+            - environment
+            - type
+            - trust
+
+import_from_core:
+  fields:
+    source:
+      required: true
+      selector:
+        select:
+          translation_key: import_source
+          options:
+            - aliases
+            - labels

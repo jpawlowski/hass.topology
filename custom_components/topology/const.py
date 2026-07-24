@@ -50,6 +50,30 @@ ISSUE_EXTERIOR_NON_OUTDOOR = "exterior_on_non_outdoor_side"
 # WebSocket subscription event (§4.12).
 EVENT_TOPOLOGY_UPDATED = "topology_updated"
 
+# --- service actions (Phase 6, PLAN-topology-phase6.md §2) ------------------
+# The seven v1 services, all ``topology.<name>``, registered in
+# ``service_actions.async_setup_services`` from ``async_setup`` (§2, D2).
+SERVICE_ANNOTATE_AREA = "annotate_area"
+SERVICE_DECLARE_CONNECTION = "declare_connection"
+SERVICE_SET_BEYOND = "set_beyond"
+SERVICE_SET_EXTERIOR = "set_exterior"
+SERVICE_SET_FLOOR_LEVEL = "set_floor_level"
+SERVICE_PROJECT_LABELS = "project_labels"
+SERVICE_IMPORT_FROM_CORE = "import_from_core"
+
+# --- label projection (Phase 6, PLAN-topology-phase6.md §2.6) ---------------
+# Projected area labels are named ``topology:<dim>:<value>`` (frozen format,
+# D10). Ownership is asserted solely by the ``description`` sentinel below — the
+# ``topology:`` name prefix alone never makes a label ours (§2.6.1, D10).
+LABEL_NAMESPACE = "topology"
+LABEL_OWNED_DESCRIPTION = "Managed by the Topology integration — do not edit"
+
+# --- one-shot imports (Phase 6, PLAN-topology-phase6.md §2.7) ---------------
+# The two import sources; also the ``imports_done_at`` sub-keys they stamp (§7).
+IMPORT_SOURCE_ALIASES = "aliases"
+IMPORT_SOURCE_LABELS = "labels"
+IMPORT_SOURCES: tuple[str, ...] = (IMPORT_SOURCE_ALIASES, IMPORT_SOURCE_LABELS)
+
 # --- config-flow field keys (§5.1) ----------------------------------------
 CONF_OCCUPANCY_EXTENT = "occupancy_extent"
 CONF_IMPORT_ALIASES = "import_aliases"

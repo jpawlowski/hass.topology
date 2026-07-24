@@ -27,7 +27,7 @@ from custom_components.topology.const import (
     ISSUE_UNKNOWN_ENUM,
     LEARN_MORE_URL,
 )
-from custom_components.topology.entity_utils.derivations import derive
+from custom_components.topology.entity_utils.derivations import build_health, derive
 from custom_components.topology.repairs import (
     ConfirmRepairFlow,
     TopologyOrphanPurgeRepairFlow,
@@ -35,7 +35,6 @@ from custom_components.topology.repairs import (
     async_reconcile_issues,
 )
 from custom_components.topology.store import TopologyStore
-from custom_components.topology.websocket_api import _build_health
 from homeassistant.helpers import area_registry as ar, floor_registry as fr, issue_registry as ir
 
 if TYPE_CHECKING:
@@ -89,7 +88,7 @@ async def test_no_issues_when_healthy(
     for issue_id in _ALL_ISSUE_IDS:
         assert _issue(hass, issue_id) is None
 
-    health = _build_health(setup_integration.runtime_data.coordinator.data, area_registry)
+    health = build_health(setup_integration.runtime_data.coordinator.data, area_registry)
     assert health["status"] == "ok"
 
 
@@ -372,7 +371,7 @@ async def test_orphan_fix_flow_publishes(
     await hass.async_block_till_done()
 
     assert any(event["change"] == "purge" for event in events)
-    health = _build_health(setup_integration.runtime_data.coordinator.data, ar.async_get(hass))
+    health = build_health(setup_integration.runtime_data.coordinator.data, ar.async_get(hass))
     assert health["orphaned_areas"] == []
     assert health["orphaned_edges"] == []
 

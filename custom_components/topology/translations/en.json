@@ -86,6 +86,218 @@
         "whole_property": "Whole property (standalone home)",
         "unit_within_building": "Unit within a building"
       }
+    },
+    "area_type": {
+      "options": {
+        "bedroom": "Bedroom",
+        "living": "Living room",
+        "kitchen": "Kitchen",
+        "dining": "Dining room",
+        "bathroom": "Bathroom",
+        "hallway": "Hallway",
+        "office": "Office",
+        "utility": "Utility",
+        "storage": "Storage",
+        "garage": "Garage",
+        "balcony": "Balcony",
+        "terrace": "Terrace",
+        "outdoor": "Outdoor"
+      }
+    },
+    "environment": {
+      "options": {
+        "indoor": "Indoor",
+        "outdoor": "Outdoor",
+        "semi_outdoor": "Semi-outdoor"
+      }
+    },
+    "trust": {
+      "options": {
+        "private": "Private",
+        "shared": "Shared",
+        "public": "Public"
+      }
+    },
+    "beyond": {
+      "options": {
+        "outdoor": "Open air",
+        "neighbor": "Neighbor",
+        "earth": "Earth"
+      }
+    },
+    "connection_preset": {
+      "options": {
+        "interior_door": "Interior door",
+        "open_passage": "Open passage",
+        "shared_wall": "Shared wall",
+        "open_stair": "Open stair",
+        "enclosed_stair": "Enclosed stair",
+        "lift": "Lift",
+        "loft_ladder": "Loft ladder",
+        "ramp": "Ramp",
+        "window": "Window",
+        "outside_door": "Outside door"
+      }
+    },
+    "projection_scope": {
+      "options": {
+        "all": "All enabled dimensions",
+        "environment": "Environment",
+        "type": "Type",
+        "trust": "Trust"
+      }
+    },
+    "import_source": {
+      "options": {
+        "aliases": "Area aliases",
+        "labels": "Area labels"
+      }
+    }
+  },
+  "services": {
+    "annotate_area": {
+      "name": "Annotate area",
+      "description": "Set the topology type, environment, or trust of an area. Only the provided fields are changed.",
+      "fields": {
+        "area_id": {
+          "name": "Area",
+          "description": "The area to annotate."
+        },
+        "type": {
+          "name": "Type",
+          "description": "The area type (open catalog — any value is allowed)."
+        },
+        "environment": {
+          "name": "Environment",
+          "description": "The enclosure class of the area."
+        },
+        "trust": {
+          "name": "Trust",
+          "description": "The access-trust class of the area."
+        }
+      }
+    },
+    "declare_connection": {
+      "name": "Declare connection",
+      "description": "Create or replace the interior connection between two areas from a named preset.",
+      "fields": {
+        "area_a": {
+          "name": "First area",
+          "description": "One endpoint of the connection."
+        },
+        "area_b": {
+          "name": "Second area",
+          "description": "The other endpoint of the connection."
+        },
+        "preset": {
+          "name": "Preset",
+          "description": "The connection preset, which expands to a passage and a barrier."
+        },
+        "side": {
+          "name": "Side",
+          "description": "The rough cardinal bearing of the connection (optional)."
+        },
+        "glazed": {
+          "name": "Glazed",
+          "description": "Whether the connection is glazed. Defaults to the preset's value."
+        },
+        "sensor": {
+          "name": "Door sensor",
+          "description": "A binary_sensor entity for a door-barrier connection (optional)."
+        }
+      }
+    },
+    "set_beyond": {
+      "name": "Set beyond",
+      "description": "Annotate — or clear — what lies beyond one outer-wall side of an area.",
+      "fields": {
+        "area_id": {
+          "name": "Area",
+          "description": "The area whose outer wall is annotated."
+        },
+        "side": {
+          "name": "Side",
+          "description": "The cardinal side of the outer wall."
+        },
+        "beyond": {
+          "name": "Beyond",
+          "description": "What lies beyond that side. Omit to clear the side."
+        }
+      }
+    },
+    "set_exterior": {
+      "name": "Set exterior connections",
+      "description": "Replace an area's exterior-connection list atomically (windows and outside doors on outer walls).",
+      "fields": {
+        "area_id": {
+          "name": "Area",
+          "description": "The area whose exterior connections are replaced."
+        },
+        "connections": {
+          "name": "Connections",
+          "description": "The full list of exterior connection objects. An empty list clears them."
+        }
+      }
+    },
+    "set_floor_level": {
+      "name": "Set floor level",
+      "description": "Store or clear a floor-level override where the registry level is unset.",
+      "fields": {
+        "floor_id": {
+          "name": "Floor",
+          "description": "The floor whose level override is set."
+        },
+        "level": {
+          "name": "Level",
+          "description": "The floor level (may be negative for basements). Omit to clear the override."
+        }
+      }
+    },
+    "project_labels": {
+      "name": "Project labels",
+      "description": "Run the one-way label projection, writing topology annotations onto owned area labels.",
+      "fields": {
+        "scope": {
+          "name": "Scope",
+          "description": "Which enabled dimension to project. Defaults to all enabled dimensions."
+        }
+      }
+    },
+    "import_from_core": {
+      "name": "Import from core",
+      "description": "Seed area annotations once from existing area aliases or labels. Never overwrites existing values.",
+      "fields": {
+        "source": {
+          "name": "Source",
+          "description": "Whether to import from area aliases or area labels."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "not_loaded": {
+      "message": "No topology configuration entry is loaded."
+    },
+    "area_not_found": {
+      "message": "Area {area_id} is not in the area registry."
+    },
+    "floor_not_found": {
+      "message": "Floor {floor_id} is not in the floor registry."
+    },
+    "same_area": {
+      "message": "A connection needs two different areas, but both endpoints are {area_id}."
+    },
+    "sensor_requires_door": {
+      "message": "A sensor can only be bound to a door-barrier connection."
+    },
+    "invalid_sensor": {
+      "message": "Sensor {sensor} is not a valid binary_sensor entity id."
+    },
+    "nothing_to_update": {
+      "message": "Provide at least one of type, environment, or trust to update."
+    },
+    "projection_disabled": {
+      "message": "The {dimension} projection is disabled; enable it before projecting that dimension."
     }
   },
   "issues": {

@@ -15,29 +15,37 @@ https://github.com/jpawlowski/hass.topology
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
 
 from .const import (
+    CONF_IMPORT_ALIASES,
+    CONF_IMPORT_LABELS,
     CONF_OCCUPANCY_EXTENT,
     CONF_PROJECT_ENVIRONMENT,
     CONF_PROJECT_TRUST,
     CONF_PROJECT_TYPE,
     CONF_UNANNOTATED_REPAIR_THRESHOLD,
     DOMAIN,
+    IMPORT_SOURCE_ALIASES,
+    IMPORT_SOURCE_LABELS,
     ISSUE_STORE_FUTURE_VERSION,
     LEARN_MORE_URL,
 )
 from .coordinator import TopologyCoordinator, TopologyRegistryWatcher
 from .data import TopologyRuntimeData
 from .service_actions import async_setup_services
+from .service_actions.imports import async_run_import
+from .service_actions.label_projection import async_reconcile_labels
 from .store import StoreCorruptError, StoreFutureVersionError, TopologyStore, TopologyStoreError
 from .websocket_api import async_register_websocket_api
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from homeassistant.core import HomeAssistant
 
     from .data import TopologyConfigEntry
@@ -108,9 +116,20 @@ async def async_setup_entry(
         project_trust=data.get(CONF_PROJECT_TRUST),
         unannotated_repair_threshold=data.get(CONF_UNANNOTATED_REPAIR_THRESHOLD),
     )
+
+    # One-shot imports (§2.7.2): run pre-seed so the initial snapshot already
+    # reflects the imported annotations and the stamp. Each source fires once —
+    # when opted-in and not yet stamped — then never again (the stamp guards it).
+    await _run_setup_imports(hass, store, data)
+
     coordinator.async_seed(store.snapshot())
 
     entry.runtime_data = TopologyRuntimeData(store=store, coordinator=coordinator)
+
+    # Label projection (§2.8 site 2): reconcile once after seed so the current
+    # toggle state is reflected in area labels at every load (a reconfigure that
+    # flips a toggle reloads and re-runs this).
+    await async_reconcile_labels(hass, store.snapshot())
 
     watcher = TopologyRegistryWatcher(hass, coordinator)
     await watcher.async_startup_purge()
@@ -120,6 +139,23 @@ async def async_setup_entry(
     await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
 
     return True
+
+
+async def _run_setup_imports(
+    hass: HomeAssistant,
+    store: TopologyStore,
+    data: Mapping[str, Any],
+) -> None:
+    """Run the setup-time one-shot imports for opted-in, unstamped sources (§2.7.2)."""
+    snapshot = store.snapshot()
+    sources = (
+        (IMPORT_SOURCE_ALIASES, CONF_IMPORT_ALIASES, snapshot.home_config.imports_done_at_aliases),
+        (IMPORT_SOURCE_LABELS, CONF_IMPORT_LABELS, snapshot.home_config.imports_done_at_labels),
+    )
+    for source, conf_key, done_at in sources:
+        if data.get(conf_key) and done_at is None:
+            await async_run_import(hass, store, source)
+            await store.async_mark_import_done(source)
 
 
 async def async_unload_entry(

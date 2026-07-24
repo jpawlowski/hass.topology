@@ -23,7 +23,13 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DEFAULT_UNANNOTATED_REPAIR_THRESHOLD, STORAGE_KEY, STORAGE_VERSION, STORAGE_VERSION_MINOR
+from .const import (
+    DEFAULT_UNANNOTATED_REPAIR_THRESHOLD,
+    IMPORT_SOURCES,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+    STORAGE_VERSION_MINOR,
+)
 from .data import OccupancyExtent, TopologySnapshot, TopologyStoreData, edge_id_for, snapshot_from_store
 
 if TYPE_CHECKING:
@@ -462,6 +468,25 @@ class TopologyStore:
         if purged:
             self._schedule_save()
         return self.snapshot(), purged
+
+    # --- one-shot imports (Phase 6, PLAN-topology-phase6.md §2.7, §7) -------
+
+    async def async_mark_import_done(self, source: str) -> TopologySnapshot:
+        """Stamp the one-shot import timestamp for a source (§2.7, §7, D9).
+
+        The only new mutation Phase 6 adds; it writes the existing
+        ``home_config.imports_done_at[source]`` field (``aliases`` or ``labels``)
+        with the current UTC timestamp, guarding the setup-time one-shot import.
+
+        ``source`` must be a known import source; an unknown value would persist a
+        stray key that future loads/migrations do not expect, so it is rejected.
+        """
+        if source not in IMPORT_SOURCES:
+            raise ValueError(f"unknown import source: {source!r}")
+        imports = self._home_config()["imports_done_at"]
+        imports[source] = _utcnow_iso()  # type: ignore[literal-required]
+        self._schedule_save()
+        return self.snapshot()
 
     async def async_save_now(self) -> None:
         """Force any pending debounced write to disk immediately."""

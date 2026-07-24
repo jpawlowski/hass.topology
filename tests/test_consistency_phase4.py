@@ -4,8 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from custom_components.topology.entity_utils.derivations import derive_consistency
-from custom_components.topology.websocket_api import _build_health
+from custom_components.topology.entity_utils.derivations import build_health, derive_consistency
 from homeassistant.helpers import area_registry as ar, floor_registry as fr
 
 if TYPE_CHECKING:
@@ -167,7 +166,7 @@ async def test_health_lists_match_derived(
     )
     await hass.async_block_till_done()
 
-    health = _build_health(setup_integration.runtime_data.coordinator.data, area_registry)
+    health = build_health(setup_integration.runtime_data.coordinator.data, area_registry)
     report = setup_integration.runtime_data.coordinator.derived.consistency
     assert health["isolated_areas"] == list(report.isolated_areas)
     assert health["status"] == "warning"  # flur isolated

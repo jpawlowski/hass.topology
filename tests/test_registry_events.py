@@ -111,12 +111,12 @@ async def test_area_created_updates_snapshot(
     area_registry: ar.AreaRegistry,
 ) -> None:
     """A new area appears as unannotated in the health signal."""
-    from custom_components.topology.websocket_api import _build_health  # noqa: PLC0415
+    from custom_components.topology.entity_utils.derivations import build_health  # noqa: PLC0415
 
     new_area = area_registry.async_create("Basement")
     await hass.async_block_till_done()
 
-    health = _build_health(setup_integration.runtime_data.coordinator.data, area_registry)
+    health = build_health(setup_integration.runtime_data.coordinator.data, area_registry)
     assert new_area.id in health["unannotated_areas"]
 
 
