@@ -16,51 +16,30 @@ Each decision is documented with:
 
 ## Decision Log
 
-### Use DataUpdateCoordinator for All Data Fetching
+### ~~Use DataUpdateCoordinator for All Data Fetching~~ (Superseded)
 
 **Date:** 2025-11-29 (Template initialization)
 
-**Context:** The integration needs to fetch data from an external API and share it with multiple entities. Home Assistant provides several patterns for this.
-
-**Decision:** Use `DataUpdateCoordinator` from `homeassistant.helpers.update_coordinator` as the central data management component.
-
-**Rationale:**
-
-- Provides built-in support for update intervals and error handling
-- Automatic retry with exponential backoff
-- Shared data access prevents duplicate API calls
-- Standard pattern recommended by Home Assistant
-- Entities automatically become unavailable when coordinator fails
-
-**Consequences:**
-
-- All entities must inherit from `CoordinatorEntity`
-- Single update interval applies to all entities
-- Data is fetched even if no entities are enabled
-- Coordinator manages entity lifecycle and availability
+**Status:** **Superseded 2026-07-23** by "Coordinator Role: Event Fanout, Not
+Polling" (below). The template decision assumed an external API with polling,
+update intervals, and retry/backoff. topology has no external data source: the
+dataset is user-entered metadata plus HA registry events. The coordinator does
+keep the `DataUpdateCoordinator` base class and the `CoordinatorEntity`
+contract, but with `update_interval=None`, no `_async_update_data`, and no
+retry logic. Do not reintroduce polling or backoff.
 
 ---
 
-### Separate API Client from Coordinator
+### ~~Separate API Client from Coordinator~~ (Superseded)
 
 **Date:** 2025-11-29 (Template initialization)
 
-**Context:** The coordinator needs to fetch data, but business logic should be separated from data transport.
-
-**Decision:** Implement API communication in separate `api/client.py` module, coordinator only orchestrates updates.
-
-**Rationale:**
-
-- Separation of concerns: transport vs. orchestration
-- Easier to test API client in isolation
-- Simpler to swap API implementation if needed
-- Clearer error handling boundaries
-
-**Consequences:**
-
-- Additional abstraction layer
-- Coordinator depends on API client
-- API client raises custom exceptions for error translation
+**Status:** **Superseded 2026-07-23** by "Coordinator Role: Event Fanout, Not
+Polling" (below). There is no API client and no `api/` package — the blueprint's
+was deleted in Phase 1. The equivalent separation in topology is
+`store.py` (persistence) versus `coordinator/` (snapshot ownership and event
+fanout) versus `entity_utils/derivations.py` (computation). Nothing in this
+integration performs network I/O.
 
 ---
 
@@ -104,9 +83,23 @@ Each decision is documented with:
 
 **Consequences:**
 
-- Each entity type needs an EntityDescription
+- Description-driven platforms keep static and dynamic properties clearly separated
 - Dynamic entities need custom handling
-- Static and dynamic properties clearly separated
+
+**Amendment 2026-07-23 — scoped to the per-area platform.** The template
+version implied "each entity type needs an EntityDescription"; the entity model
+(ADR "Entity Model") makes that true only where it earns its keep:
+
+- **Per-area diagnostic sensors** are description-driven —
+  `TopologyAreaSensorDescription` (`sensor/area.py`) extends
+  `SensorEntityDescription` with `dimension` + `value_fn`, and one description
+  per annotation dimension is instantiated for every area.
+- **The two singleton entities** (`sensor/house.py`,
+  `binary_sensor/perimeter.py`) set their handful of `_attr_*` class attributes
+  directly. A one-instance description would be indirection without benefit.
+
+There is no device class or icon metadata to describe beyond this: topology
+creates no devices, and icons come from `icons.json` (icon translations).
 
 ---
 
@@ -334,7 +327,7 @@ integration is a natural surface for the health signal.
 
 ---
 
-### Quality Target: Platinum-Conformant, Core Merge as v2+ Path
+### Quality Target: Platinum-Conformant as an Engineering Standard
 
 **Date:** 2026-07-23
 
@@ -351,17 +344,36 @@ Core merge.
   either fully implemented or legitimately marked N/A in the rule-mapping
   table (PLAN-topology.md §8). `quality_scale: platinum` is declared in
   the manifest as a self-documentation goal.
-- **v2+ (aspirational):** propose topology as a Core helper integration
-  once (a) the data model has been stable for at least two minor releases,
-  (b) user base is nontrivial (measured via HACS install count),
-  (c) architecture review with Core team has happened.
-- The `documentation` URL stays on the custom GitHub repo until the Core
-  merge lands; when it lands, both URLs coexist during a deprecation
-  window.
+- The `documentation` URL stays on this repository. The Platinum
+  `documentation` rule presupposes a Core `www.home-assistant.io` page,
+  which is the one Platinum requirement this project cannot satisfy at all
+  as a custom integration; it is recorded as such rather than papered over.
+
+**Amendment 2026-07-25 — a Core merge is no longer the goal.** The original
+decision framed Core submission as the v2+ path to the badge. The project
+owner has stated the intent plainly: **Platinum is held as a real engineering
+standard for its own sake**, not as a step toward a badge, and joining Core
+is not planned. Consequences of the amendment:
+
+- The v2+ "propose as a Core helper integration" clause is **withdrawn**. The
+  three preconditions it named (two stable minors, HACS install count,
+  Core architecture review) no longer gate anything.
+- `quality_scale: platinum` **stays** in the manifest. It is not a claim to a
+  badge — HA never displays it for a custom integration — it is the standard
+  the code is held to, and the rule-mapping table
+  (`PLAN-topology.md` §8, audited in `PLAN-topology-phase8.md` §2) is the
+  honest record of where that standard is met, not met, or genuinely N/A.
+- A rule may be marked N/A **only** with a reason that would survive review
+  by someone who wanted it implemented. "We are not Core" is not such a
+  reason for anything except the `documentation` URL rule above.
+- Architecture stays Core-review-ready anyway: no HACS-specific tricks and no
+  reliance on custom-integration-only behaviour. That discipline is what
+  makes the standard meaningful, and it costs nothing to keep.
 
 **Rationale:** Setting the expectation up front prevents future confusion
-about "why doesn't Platinum show in the UI". The two-stage path is realistic
-and non-blocking.
+about "why doesn't Platinum show in the UI". Holding the rules without
+chasing the badge keeps the engineering benefit and drops the part that was
+never actually wanted.
 
 **Consequences:**
 

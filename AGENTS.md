@@ -4,20 +4,40 @@ This document provides guidance for AI coding agents working on this Home Assist
 
 ## Project Overview
 
-This is a Home Assistant custom integration that was generated from a blueprint template. The integration follows Home Assistant Core development patterns and quality standards.
+Topology is a Home Assistant custom integration that adds a **metadata layer over the HA area and floor registries**. It consumes, never rebuilds, those registries: it does not define areas or floors, it annotates the ones Core already knows about and makes the house machine-readable for automations.
+
+**What it provides:**
+
+- **Area annotations** — `type` (open catalog: bedroom, kitchen, hallway, garage, terrace, …), `environment` (`indoor` · `outdoor` · `semi_outdoor`), `trust` / exposure class (`private` < `shared` < `public`), plus per-floor level numbers.
+- **Adjacency graph** — user-maintained edges between areas with named connection presets (doors, windows, passages) and `beyond` classifications for edges that leave the house.
+- **Derived data** — the **perimeter** (which connections face the outside), neighbor and shortest-path queries, and a health/consistency signal. All derivations are computed on read (`entity_utils/derivations.py`, `entity_utils/graph.py`), never persisted.
+- **Admin panel** — a Lit web component written in TypeScript under `frontend/`, bundled by esbuild into `custom_components/topology/panel/`. The panel is the primary editing surface for annotations and the graph.
+- **WebSocket API** — the frozen `topology/*` command contract in `websocket_api.py`, used by the panel and by external consumers (e.g. the sister project Residents).
+- **Entities** — a household summary sensor, a perimeter binary sensor, and opt-in per-area diagnostic sensors (see the ADR "Entity Model").
+
+**What topology deliberately is _not_ — do not reintroduce these patterns:**
+
+- ❌ **No external service, no API client.** There is no `api/` package, no HTTP client, and no runtime dependency. `iot_class: calculated`.
+- ❌ **No polling.** The coordinator is a thin event-fanout coordinator over `area_registry_updated` / `floor_registry_updated`; it has no `_async_update_data`, no update interval, no retry logic. See ADR "Coordinator Role: Event Fanout, Not Polling".
+- ❌ **No devices.** Entities are registry-driven and provide no `device_info` (Quality-Scale `devices` rule is N/A).
+- ❌ **No discovery, no reauth.** The config flow is a confirm-only singleton (`single_config_entry: true`) with no credentials and no settings fields.
 
 **Integration details:**
 
 - **Domain:** `topology`
 - **Title:** Topology
 - **Repository:** jpawlowski/hass.topology
+- **Manifest:** `integration_type: helper`, `iot_class: calculated`, `single_config_entry: true`, `quality_scale: platinum` (self-declared goal)
 
 **Key directories:**
 
 - `custom_components/topology/` - Main integration code
+- `custom_components/topology/panel/` - **Generated** panel bundle — never hand-edit; rebuild with `script/frontend`
+- `frontend/` - Panel source (TypeScript + Lit, esbuild config, Vitest tests)
 - `config/` - Home Assistant configuration for local testing
-- `tests/` - Unit and integration tests
+- `tests/` - Unit and integration tests (pytest)
 - `script/` - Development and validation scripts
+- `docs/development/` - Plans and decisions: `PLAN-topology.md` is the interface contract, `DECISIONS.md` the ADR log
 
 **Local Home Assistant instance:**
 
@@ -80,7 +100,7 @@ If a developer requests something that contradicts these instructions:
 
 ### Maintaining These Instructions
 
-**This project was recently initialized from a template.** Instructions should evolve as the project matures:
+**Parts of this file still originate from the blueprint template it was generated from.** Instructions should evolve as the project matures — when you hit generic blueprint guidance that contradicts the real code, fix it here instead of working around it:
 
 - Refine guidelines based on actual project needs
 - Remove outdated rules that no longer apply
@@ -132,9 +152,11 @@ When a task completes and the developer moves to a new topic, suggest committing
 
 **Third-party libraries (PyPI):**
 
+> **Status for topology:** the integration has **zero runtime dependencies** and talks to no external service (`dependency-transparency` is satisfied by having nothing to declare). The guidance below applies only if a future feature genuinely needs an external service — adding a dependency requires an ADR in `docs/development/DECISIONS.md` first.
+
 - ✅ Prefer existing PyPI libraries when maintained and fit the use case
-- ✅ Build custom API client when:
-  - Device/service uses simple REST API or GraphQL (HTTP, JSON)
+- ✅ Build a custom client only when:
+  - The service uses a simple REST API or GraphQL (HTTP, JSON)
   - Available libraries are unmaintained, bloated, or poorly designed
   - Using aiohttp + json is more maintainable than a framework
 
@@ -147,11 +169,11 @@ When a task completes and the developer moves to a new topic, suggest committing
 
 **Quality Scale expectations:**
 
-As an AI agent, **aim for Silver or Gold Quality Scale** when generating code:
+topology targets **Platinum-conformant** code (ADR "Quality Target: Platinum-Conformant, Core Merge as v2+ Path"). The full rule mapping with per-rule status lives in `docs/development/PLAN-topology.md` §8 — check it before claiming a rule is N/A.
 
-- ✅ **Always implement:** Type hints, async patterns, proper error handling, service registration in `async_setup()`, diagnostics with `async_redact_data()`, device info
-- 🎯 **When applicable:** Config flow with validation, reauth flow, discovery support, repair flows
-- 📋 **Can defer:** Multiple config entries, advanced discovery, YAML import, extensive test coverage
+- ✅ **Always implement:** Type hints, async patterns, proper error handling, service registration in `async_setup()`, diagnostics with `async_redact_data()`, entity translations and unique IDs, tests for new behavior
+- 🎯 **When applicable:** Repair flows, config-entry migrations, options/reconfigure handling
+- 🚫 **Legitimately N/A here (do not add):** device info, discovery, reauth, polling intervals, multiple config entries
 
 **Developer expectation:** Generate production-ready code. Implement HA standards with reasonable effort.
 
@@ -201,32 +223,36 @@ This integration uses the following identifiers consistently:
 
 ### Integration Structure
 
-**Package organization (DO NOT create other packages):**
+**Package organization inside `custom_components/topology/` (DO NOT create other packages):**
 
-- `api/` - API client and exceptions
-- `coordinator/` - Data update coordinator
-- `config_flow_handler/` - Config flow, options, validators, schemas
-  - `validators/*.py` - Config flow validation functions
-  - `schemas/*.py` - Data schemas for config flow steps
-- `entity/` - Base entity classes
-- `entity_utils/` - Entity-specific helpers (device_info, state formatting)
-- `[platform]/` - Entity platforms (sensor, switch, etc.)
-- `service_actions/` - Service action implementations
+- `coordinator/` - Event-fanout coordinator (`base.py`) and the registry watcher (`registry_watcher.py`)
+- `config_flow_handler/` - Confirm-only config flow (`config_flow.py`) and its setup checks (`handler.py`)
+- `entity/` - Base entity class (`base.py`, no device info)
+- `entity_utils/` - Derivations (`derivations.py`), graph algorithms (`graph.py`), frozen entity/unique-ID helpers (`entity_ids.py`)
+- `sensor/`, `binary_sensor/` - Entity platforms, one entity class per file
+- `service_actions/` - Service action handlers, schemas, validation, import and label-projection logic
 - `utils/` - Integration-wide utilities (string helpers, general validators)
+- `panel/` - **Generated** panel assets built from `frontend/` by `script/frontend`; never edit by hand
+- `translations/` - Translation files (`en.json` is authoritative)
+
+Root modules: `__init__.py` (setup, panel registration, migrations), `const.py`, `data.py` (dataclasses, enums, presets), `store.py` (persisted state), `websocket_api.py` (frozen `topology/*` contract), `diagnostics.py`, `repairs.py`, `config_flow.py` (thin re-export).
+
+Panel source lives outside the integration in `frontend/src/` (`api/`, `editors/`, `map/`, `state/`, `i18n/`, `test/`).
 
 **Do NOT create:**
 
+- `api/` - there is no external service to talk to (see Project Overview)
 - `helpers/`, `ha_helpers/`, or similar packages - use `utils/` or `entity_utils/` instead
 - `common/`, `shared/`, `lib/` - use existing packages above
 - New top-level packages without explicit approval
 
 **Key patterns:**
 
-- Entities → Coordinator → API Client (never skip layers)
+- Entities → Coordinator → Store (never skip layers). Entities read `coordinator.data` (the store snapshot) and `coordinator.derived` (the registry-merged projection) — never the store, area registry, or floor registry directly
 - Each platform in own directory with `__init__.py`
 - One entity class per file for clarity
-- Individual entity classes in separate files (e.g., `air_quality.py`)
-- Use `EntityDescription` dataclasses for static entity metadata
+- Use `EntityDescription` dataclasses for static entity metadata (see `sensor/area.py`)
+- Unique IDs and entity IDs are **frozen** contracts — build them only through `entity_utils/entity_ids.py`
 
 **Code organization principles:**
 
@@ -237,14 +263,17 @@ This integration uses the following identifiers consistently:
 **For detailed patterns, see:**
 
 - `.github/instructions/blueprint.entities.instructions.md` - Entity platform patterns
-- `.github/instructions/blueprint.coordinator.instructions.md` - Coordinator implementation
-- `.github/instructions/blueprint.api.instructions.md` - API client patterns
+- `.github/instructions/blueprint.coordinator.instructions.md` - Coordinator implementation (read with the "no polling" caveat above)
+
+> `.github/instructions/blueprint.api.instructions.md` describes API-client patterns and does **not** apply to this integration.
 
 ### Device Info
 
-All entities should provide consistent device info via the base entity class (manufacturer, model, serial number, configuration URL, firmware version).
+**topology creates no devices.** Entities are registry-driven annotations of areas the user already owns; inventing a service device for them would add a meaningless entry to the device registry. `TopologyEntity` (`entity/base.py`) therefore sets no `_attr_device_info`, and the Quality-Scale `devices` rule is declared N/A. Do not add device info to an entity.
 
 ### Integration Manifest
+
+> **topology's values are ratified** — `integration_type: helper`, `iot_class: calculated`, `single_config_entry: true`, `quality_scale: platinum` (ADR "Manifest Declaration"). Do not change them without a new ADR. The reference below explains the field space for context.
 
 **Key fields in `manifest.json`:**
 
@@ -287,6 +316,8 @@ See `.github/instructions/blueprint.manifest.instructions.md` for comprehensive 
 
 ### Config Flow Best Practices
 
+> **topology's flow is a confirm-only singleton** (ADR "Editing Surface: Config Flow for Setup, Panel for Data", amended 2026-07-25): the user step and the reconfigure step run the setup checks and create/reload the entry with `data == {}`. There are no credentials, no discovery, and no settings fields — those live in the store and are edited from the panel. Discovery/reauth guidance below is therefore N/A here; keep it for the migration rules, which do apply (`CONFIG_ENTRY_VERSION` / `CONFIG_ENTRY_MINOR_VERSION` in `const.py`).
+
 **Reserved step names:**
 
 - Discovery: `bluetooth`, `dhcp`, `homekit`, `mqtt`, `ssdp`, `usb`, `zeroconf`
@@ -321,8 +352,8 @@ python3 -m script.scaffold config_flow_oauth2     # OAuth2 flow
 **Config flow:**
 
 - Implement in `config_flow_handler/` package
-- Support user setup, discovery, reauth, reconfigure
-- Always set unique_id for discovered entries
+- Confirm-only user + reconfigure steps; the singleton is enforced by a fixed unique ID plus `single_config_entry: true`
+- Run the test-before-configure / test-before-setup checks in `handler.py`; never add settings fields (see the note above)
 
 See `.github/instructions/blueprint.config_flow.instructions.md` for comprehensive patterns.
 
@@ -335,18 +366,20 @@ See `.github/instructions/blueprint.config_flow.instructions.md` for comprehensi
 
 See `.github/instructions/blueprint.service_actions.instructions.md` for service patterns.
 
-**Coordinator:**
+**Coordinator (event fanout, not polling):**
 
-- Entities → Coordinator → API Client (never skip layers)
-- Raise `ConfigEntryAuthFailed` (triggers reauth) or `UpdateFailed` (retry)
-- Use `async_config_entry_first_refresh()` for first update
+- Entities → Coordinator → Store (never skip layers)
+- `TopologyCoordinator` owns the loaded store snapshot and the derived projection; it has **no** `_async_update_data`, no `update_interval`, and no retry logic
+- Registry events (`area_registry_updated`, `floor_registry_updated`) are subscribed in `coordinator/registry_watcher.py` and fanned out via `async_update_listeners()`
+- `PARALLEL_UPDATES = 0` on every platform
+- Setup failures raise `ConfigEntryNotReady` / `ConfigEntryError`; there is nothing to authenticate, so never `ConfigEntryAuthFailed`
 
-See `.github/instructions/blueprint.coordinator.instructions.md` and `.github/instructions/blueprint.api.instructions.md` for details.
+See `.github/instructions/blueprint.coordinator.instructions.md` for the generic `DataUpdateCoordinator` API, and the ADR "Coordinator Role: Event Fanout, Not Polling" for what this project does differently.
 
 **Entities:**
 
 - Inherit from platform base + `TopologyEntity`
-- Read from `coordinator.data`, never call API directly
+- Read from `coordinator.data` / `coordinator.derived`, never from the store or the registries directly
 - Use `EntityDescription` for static metadata
 
 See `.github/instructions/blueprint.entities.instructions.md` for entity patterns.
@@ -362,20 +395,19 @@ See `.github/instructions/blueprint.repairs.instructions.md` for comprehensive p
 
 **Entity availability:**
 
-- Set `_attr_available = False` when device is unreachable
-- Update availability based on coordinator success/failure
+- Entities are available whenever the store snapshot is loaded — there is no remote endpoint that can go offline
 - Don't raise exceptions from `@property` methods
 
 **State updates:**
 
 - Use `self.async_write_ha_state()` for immediate updates
-- Let coordinator handle periodic updates
-- Minimize API calls (batch requests when possible)
+- Let the coordinator fan out registry and store changes; entities never schedule their own refresh
 
 **Setup failure handling:**
 
-- `ConfigEntryNotReady` - Device offline/timeout, auto-retry, don't log manually (HA logs at debug)
-- `ConfigEntryAuthFailed` - Expired credentials, triggers reauth flow, alternative: `entry.async_start_reauth()`
+- `ConfigEntryNotReady` - Transient setup problem (store not loadable yet), auto-retry, don't log manually (HA logs at debug)
+- `ConfigEntryError` - Permanent setup problem (e.g. a store written by a newer version)
+- `ConfigEntryAuthFailed` - N/A, there are no credentials
 
 **Diagnostics:**
 
@@ -406,6 +438,7 @@ script/check      # Full validation: type-check + lint-check + spell-check
 | `*.yaml` / `*.yml` only                | `script/yaml-check`                   | Skips Python, Shell, Markdown, types              |
 | `*.md` only                            | `script/markdown`                     | Prettier + markdownlint only                      |
 | `script/` or `.devcontainer/*.sh` only | `script/shell` + `script/shell-check` | Fixes shfmt, then checks shellcheck               |
+| `frontend/**` (panel source)           | `script/frontend-check`               | tsc + Vitest only; run `script/frontend` to build |
 | Multiple types or unsure               | `script/lint` + `script/type-check`   | Safe default for agents                           |
 
 **Recommended agent workflow — fix scripts already show what they couldn't fix:**
@@ -526,16 +559,20 @@ After auto-fixes are applied, only manually edit files for errors that **remain 
 **Test structure:**
 
 - `tests/` mirrors `custom_components/topology/` structure
-- Use fixtures for common setup (Home Assistant mock, coordinator, etc.)
-- Mock external API calls
+- Use fixtures for common setup (`hass`, config entry, store snapshot, coordinator)
+- There is no external API to mock — set up the area/floor registries and the store instead
+- Panel tests are Vitest specs under `frontend/src/test/`, run by `script/frontend-check`
 
 **Running tests:**
 
 ```bash
 script/test                           # All tests
-script/test --cov-html                # With coverage report
+script/test --cov                     # With terminal coverage report
+script/test --cov-html                # With HTML coverage report
 script/test --snapshot-update         # Update Syrupy snapshots
 ```
+
+**CI:** `.github/workflows/test.yml` runs `script/test --cov` (report only, no coverage gate) and `script/type-check` on every push and pull request against `main`. `lint.yml`, `validate.yml`, and `frontend.yml` cover linting, hassfest/HACS, and the panel bundle.
 
 See `.github/instructions/blueprint.tests.instructions.md` for comprehensive testing patterns.
 
@@ -588,7 +625,7 @@ See `.github/instructions/blueprint.tests.instructions.md` for comprehensive tes
 - Propose a plan first before starting implementation
 - Get explicit confirmation from developer
 
-**Important: Do NOT create or modify tests unless explicitly requested.** Focus on implementing functionality. The developer decides when and if tests are needed.
+**Tests:** topology targets the Silver `test-coverage` rule (≥ 95 %, ADR "Quality Target"), and CI runs the suite on every push — so a behavior change belongs together with the tests that cover it. Do **not** go beyond that: no unrelated test refactors, no rewriting existing tests to make a change pass, and no new test infrastructure without asking.
 
 **Translation strategy:**
 

@@ -1,11 +1,14 @@
 # Topology — Interface Plan
 
-**Status:** Interface contract · Last updated 2026-07-23
+**Status:** Interface contract · Last updated 2026-07-25
 
-**Quality target:** Platinum-conformant from v1; official Platinum badge
-is only awarded to Core integrations and is targeted as a v2+ path via
-a Core merge (see `DECISIONS.md` — "Quality Target: Platinum-Conformant,
-Core Merge as v2+ Path", and §8 below for the full rule mapping).
+**Quality target:** Platinum-conformant, held as a real engineering standard
+rather than as a step toward a badge. Home Assistant awards and displays the
+Quality Scale only for Core integrations, and joining Core is **not** a goal —
+so `quality_scale: platinum` in the manifest is the bar the code is held to, and
+§8 below is the honest record of where that bar is met, not met, or genuinely
+N/A (see `DECISIONS.md` — "Quality Target: Platinum-Conformant as an
+Engineering Standard", amended 2026-07-25).
 
 **topology will be implemented in a separate repository.** This document
 exists here only to pin the interface contract, so both integrations stay
@@ -69,8 +72,11 @@ level):
   by **one or more connections** (next concept) — two floor landings
   routinely hold both a stair and a lift at once, so a single edge is a
   _bundle_, not one link. "Connected vs. only next to each other" is
-  whether any connection is traversable; graph "distance" is the hop count
-  plus the floor-level difference. Observer-relative directions
+  whether any connection is traversable. Graph distance is served as **two**
+  numbers, because the unweighted one is what a consumer usually wants and the
+  weighted one is what "how far" means to a person: `hops` is the edge count,
+  and `distance` adds every storey the path climbs (`null` when a level on the
+  path is unresolvable). Observer-relative directions
   (left/right/front/back) are deliberately **not** modeled — they are
   ambiguous without a fixed viewpoint — and there are no metric (x/y/z)
   coordinates.
@@ -118,8 +124,12 @@ level):
 
   In the UI a connection is picked from a named **preset** — interior
   door, open passage, shared wall, open stair, enclosed stair, lift,
-  loft ladder, ramp, window, outside door — that expands to a `passage` +
-  `barrier` pair. The **stored model stays the two-axis form**, so presets
+  loft ladder, ramp, hatch, window, outside door — that expands to a
+  `passage` + `barrier` pair. Each preset also declares a **scope**
+  (interior between two of your areas, or exterior leaving the home), since
+  an interior and an outside door expand identically and a client must not
+  have to guess which list a preset belongs in.
+  The **stored model stays the two-axis form**, so presets
   are convenience only, not a new object type; rare real combinations
   (a glass observation lift = `elevator` + `open`) remain settable by hand
   without a preset for every permutation.
@@ -193,9 +203,11 @@ Full rationale in `DECISIONS.md` — "Entity Model". Summary:
   unset (it is a user-facing summary, not a diagnostic).
 - **`binary_sensor.topology_perimeter_open`** — aggregate, `on` when any
   perimeter connection with a bound `binary_sensor` is `on`. Attributes:
-  `open_connections` (list of `{edge_id, area_a, area_b, source_entity}`).
-  `device_class: opening`. Always enabled — this is the primary security
-  hook.
+  `open_connections` (list of `{edge_id, area_id, connection_index,
+source_entity}`), `open_count`, `monitored_count`, `unavailable_sensors`.
+  For an interior perimeter edge the `area_id` names the **more private** of
+  the two areas — the room the boundary protects. `device_class: opening`.
+  Always enabled — this is the primary security hook.
 - **`sensor.topology_<area_slug>_type`**, **`_environment`**, **`_trust`**
   — one triple per area, `entity_category: diagnostic`, **disabled by
   default**. Users opt in per area for dashboard/automation targeting
@@ -215,6 +227,10 @@ registry churn bounded.
 - `topology.declare_connection(area_a, area_b, preset, sensor?, side?,
 glazed?)` — panel-driven; preset expands to `passage` + `barrier`.
 - `topology.set_beyond(area_id, side, beyond)` — annotate an outer wall.
+- `topology.set_exterior(area_id, connections)` — replace an area's
+  windows / outside doors atomically.
+- `topology.set_floor_level(floor_id, level?)` — store or clear a level
+  override for a floor the registry leaves unset.
 - `topology.project_labels(scope: all|environment|type|trust)` — one-way
   label projection (§6).
 - `topology.import_from_core(source: aliases|labels)` — one-shot import;
@@ -354,9 +370,12 @@ topology when a dependent capability would benefit:
   - Diagnostics (`async_redact_data` for optional freetext fields;
     graph + trust distribution otherwise non-sensitive).
   - Opt-in **label projection** of `environment`/`type`/trust (§6).
-  - Repairs (see §8): unannotated-area threshold, orphaned edges past
-    undo window, contradictory bearings, exterior openings on non-outdoor
-    walls, unknown enum values after downgrade.
+  - Repairs (see §8), ten issue classes: unannotated-area threshold,
+    orphaned registry entries past the undo window, isolated areas, indoor
+    areas without a floor, contradictory bearings, exterior openings on
+    non-outdoor walls, connections spanning more than one storey,
+    connections between storeys with no way to climb, unknown enum values
+    after downgrade, and a store written by a newer version.
   - Blueprints published alongside v1 for the anchor consumers listed in
     §9 (perimeter-at-night notify, west-side covers at sunset,
     ventilation coordination).
@@ -402,7 +421,8 @@ divergence. One-way, opt-in, integration-owned:
 
 - Projects **`environment`** (indoor/outdoor), room **`type`**, and the
   **trust class** (`private`/`shared`/`public`) onto **area** labels
-  (`topology:outdoor`, `topology:bedroom`, `topology:public`, …) so Core
+  (`topology:environment:outdoor`, `topology:type:bedroom`,
+  `topology:trust:public`, …) so Core
   label features — automation `target`, UI filters, voice — can use them
   without going through topology's read hook. The trust label is
   especially useful as a security-automation target.
@@ -499,7 +519,7 @@ non-obvious.
 | `config-flow-test-coverage`      | IMPL   | 2     | pytest coverage of every flow branch                                                     |
 | `dependency-transparency`        | IMPL   | 1     | No PyPI dependencies                                                                     |
 | `docs-actions`                   | IMPL   | 8     | Every service action in user docs                                                        |
-| `docs-high-level-description`    | IMPL   | 8     | `docs/user/index.md`                                                                     |
+| `docs-high-level-description`    | DONE   | 8     | `README.md` intro + `docs/user/GETTING_STARTED.md`                                       |
 | `docs-installation-instructions` | IMPL   | 8     | HACS + manual                                                                            |
 | `docs-removal-instructions`      | IMPL   | 8     | Plus label leave-behind explanation (§6)                                                 |
 | `entity-event-setup`             | IMPL   | 3     | Register listeners in `async_added_to_hass`, unregister in `async_will_remove_from_hass` |
@@ -523,41 +543,41 @@ non-obvious.
 | `log-when-unavailable`          | IMPL   | 3     | Info-level, once per unavailability transition                    |
 | `parallel-updates`              | IMPL   | 3     | `PARALLEL_UPDATES = 0` per platform                               |
 | `reauthentication-flow`         | N/A    | —     | No credentials                                                    |
-| `test-coverage`                 | IMPL   | 3+    | ≥ 95 % from Phase 3 onward; enforced in CI                        |
+| `test-coverage`                 | IMPL   | 3+    | ≥ 95 % target, met today; CI gate at 93 % (see `pyproject.toml`)  |
 
 ### Gold
 
-| Rule                         | Status | Phase | Note                                                                   |
-| ---------------------------- | ------ | ----- | ---------------------------------------------------------------------- |
-| `devices`                    | N/A    | —     | No physical devices; ADR "Manifest Declaration"                        |
-| `diagnostics`                | IMPL   | 6     | Adjacency graph + trust distribution; `async_redact_data` for freetext |
-| `discovery`                  | N/A    | —     | Nothing to discover                                                    |
-| `discovery-update-info`      | N/A    | —     | See above                                                              |
-| `docs-data-update`           | IMPL   | 8     | Event-driven model, no polling; document the invalidation flow         |
-| `docs-examples`              | IMPL   | 8     | Ship blueprints from §9 as examples                                    |
-| `docs-known-limitations`     | IMPL   | 8     | Single instance, no coordinate geometry, no runtime label consumption  |
-| `docs-supported-devices`     | N/A    | —     | No devices                                                             |
-| `docs-supported-functions`   | IMPL   | 8     | Enumerated feature list                                                |
-| `docs-troubleshooting`       | IMPL   | 8     | Registry-event debugging, orphan cleanup, panel access                 |
-| `docs-use-cases`             | IMPL   | 8     | Anchor consumers in §9                                                 |
-| `dynamic-devices`            | N/A    | —     | No devices                                                             |
-| `entity-category`            | IMPL   | 3     | Per-area triples: `diagnostic`; house sensor: unset                    |
-| `entity-device-class`        | IMPL   | 3     | Perimeter binary: `opening`; per-area: no matching class               |
-| `entity-disabled-by-default` | IMPL   | 3     | Per-area triples disabled by default                                   |
-| `entity-translations`        | IMPL   | 3     | `strings.json` per entity                                              |
-| `exception-translations`     | IMPL   | 6     | `strings.json` `exceptions` block                                      |
-| `icon-translations`          | IMPL   | 3     | `icons.json` per state                                                 |
-| `reconfiguration-flow`       | IMPL   | 2     | Mirrors initial setup only                                             |
-| `repair-issues`              | IMPL   | 6     | Set defined in §5 v1 scope                                             |
-| `stale-devices`              | N/A    | —     | No devices                                                             |
+| Rule                         | Status | Phase | Note                                                                      |
+| ---------------------------- | ------ | ----- | ------------------------------------------------------------------------- |
+| `devices`                    | N/A    | —     | No physical devices; ADR "Manifest Declaration"                           |
+| `diagnostics`                | IMPL   | 6     | Adjacency graph + trust distribution; `async_redact_data` for freetext    |
+| `discovery`                  | N/A    | —     | Nothing to discover                                                       |
+| `discovery-update-info`      | N/A    | —     | See above                                                                 |
+| `docs-data-update`           | DONE   | 8     | `CONFIGURATION.md` "How the data updates" — event-driven, derived on read |
+| `docs-examples`              | DONE   | 8     | Four blueprints in `blueprints/automation/topology/` + `EXAMPLES.md`      |
+| `docs-known-limitations`     | IMPL   | 8     | Single instance, no coordinate geometry, no runtime label consumption     |
+| `docs-supported-devices`     | N/A    | —     | No devices                                                                |
+| `docs-supported-functions`   | IMPL   | 8     | Enumerated feature list                                                   |
+| `docs-troubleshooting`       | IMPL   | 8     | Registry-event debugging, orphan cleanup, panel access                    |
+| `docs-use-cases`             | IMPL   | 8     | Anchor consumers in §9                                                    |
+| `dynamic-devices`            | N/A    | —     | No devices                                                                |
+| `entity-category`            | IMPL   | 3     | Per-area triples: `diagnostic`; house sensor: unset                       |
+| `entity-device-class`        | IMPL   | 3     | Perimeter binary: `opening`; per-area: no matching class                  |
+| `entity-disabled-by-default` | IMPL   | 3     | Per-area triples disabled by default                                      |
+| `entity-translations`        | IMPL   | 3     | `strings.json` per entity                                                 |
+| `exception-translations`     | IMPL   | 6     | `strings.json` `exceptions` block                                         |
+| `icon-translations`          | IMPL   | 3     | `icons.json` per state                                                    |
+| `reconfiguration-flow`       | IMPL   | 2     | Mirrors initial setup only                                                |
+| `repair-issues`              | IMPL   | 6     | Set defined in §5 v1 scope                                                |
+| `stale-devices`              | N/A    | —     | No devices                                                                |
 
 ### Platinum
 
-| Rule                | Status | Phase | Note                                                           |
-| ------------------- | ------ | ----- | -------------------------------------------------------------- |
-| `async-dependency`  | N/A    | —     | No external dependency; ADR "Manifest Declaration"             |
-| `inject-websession` | N/A    | —     | No HTTP                                                        |
-| `strict-typing`     | IMPL   | 1+    | Pyright strict mode; `py.typed` marker; no `Any` in public API |
+| Rule                | Status | Phase | Note                                                                                      |
+| ------------------- | ------ | ----- | ----------------------------------------------------------------------------------------- |
+| `async-dependency`  | N/A    | —     | No external dependency; ADR "Manifest Declaration"                                        |
+| `inject-websession` | N/A    | —     | No HTTP                                                                                   |
+| `strict-typing`     | DONE   | 1+    | Pyright `strict` + `py.typed`; two documented framework-level waivers in `pyproject.toml` |
 
 **Blockers for the official badge**, tracked in `DECISIONS.md` — "Quality
 Target":
@@ -567,7 +587,10 @@ Target":
    Core merge (v2+).
 2. Core-team architecture review — scheduled once user base is
    nontrivial.
-3. Test coverage ≥ 95 % continuously — enforced from Phase 3 onward.
+3. Test coverage ≥ 95 % continuously — the target since Phase 3. CI runs the
+   suite and fails below a 93 % floor, deliberately a little under the target so
+   one uncovered line does not turn CI red; the gate is never lowered to make a
+   change pass.
 
 ## 9. Ecosystem anchor consumers
 
