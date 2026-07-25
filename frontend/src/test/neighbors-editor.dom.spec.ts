@@ -146,8 +146,8 @@ describe("neighbours editor: offered kinds match the boundary", () => {
     const values = [...presetSelect(element).options].map((option) => option.value);
     expect(values).toContain("enclosed_stair");
     expect(values).not.toContain("interior_door");
-    // A shared ceiling declares "these touch" with no way through — always valid.
-    expect(values).toContain("shared_wall");
+    // A slab declares "these touch" with no way through — valid on any boundary.
+    expect(values).toContain("ceiling");
   });
 
   it("never offers an exterior kind — an edge joins two of your own areas", async () => {

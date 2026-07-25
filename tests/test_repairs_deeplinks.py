@@ -17,6 +17,7 @@ from custom_components.topology.const import (
     DOMAIN,
     ISSUE_CONTRADICTORY_BEARINGS,
     ISSUE_DEEP_LINKS,
+    ISSUE_DOC_ANCHORS,
     ISSUE_EDGES_SPANNING_FLOORS,
     ISSUE_EXTERIOR_NON_OUTDOOR,
     ISSUE_INDOOR_WITHOUT_FLOOR,
@@ -124,28 +125,31 @@ async def test_orphan_card_deep_link_and_flow(
     assert isinstance(flow, TopologyOrphanPurgeRepairFlow)
 
 
-async def test_unknown_enum_keeps_repo_url(
+async def test_unknown_enum_points_at_the_docs(
     hass: HomeAssistant,
     setup_integration: MockConfigEntry,
     store_payload_full: dict[str, Any],
     area_registry: ar.AreaRegistry,
     load_payload: Callable[[MockConfigEntry, dict[str, Any]], None],
 ) -> None:
-    """`unknown_enum_after_downgrade` is not panel-remediable — keeps the repo URL."""
+    """`unknown_enum_after_downgrade` is not panel-remediable, so its one link
+    field points at the documentation section rather than at the bare repository
+    root it used to (Phase 8 §4.2, D11)."""
     store_payload_full["areas"]["kueche"]["environment"] = "underwater"
     load_payload(setup_integration, store_payload_full)
 
     issue = _issue(hass, ISSUE_UNKNOWN_ENUM)
     assert issue is not None
-    assert issue.learn_more_url == LEARN_MORE_URL
+    assert issue.learn_more_url == ISSUE_DOC_ANCHORS[ISSUE_UNKNOWN_ENUM]
+    assert issue.learn_more_url != LEARN_MORE_URL
     assert ISSUE_UNKNOWN_ENUM not in ISSUE_DEEP_LINKS
 
 
-async def test_store_future_version_keeps_repo(
+async def test_store_future_version_points_at_the_docs(
     hass: HomeAssistant,
     mock_config_entry: MockConfigEntry,
 ) -> None:
-    """`store_future_version` (raised in __init__) keeps the repo URL."""
+    """`store_future_version` (raised in __init__) points at its doc section."""
     envelope = {
         "version": 2,
         "minor_version": 1,
@@ -163,7 +167,8 @@ async def test_store_future_version_keeps_repo(
 
     issue = _issue(hass, ISSUE_STORE_FUTURE_VERSION)
     assert issue is not None
-    assert issue.learn_more_url == LEARN_MORE_URL
+    assert issue.learn_more_url == ISSUE_DOC_ANCHORS[ISSUE_STORE_FUTURE_VERSION]
+    assert issue.learn_more_url != LEARN_MORE_URL
     assert ISSUE_STORE_FUTURE_VERSION not in ISSUE_DEEP_LINKS
 
 

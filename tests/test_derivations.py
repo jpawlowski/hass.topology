@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
+from custom_components.topology.data import CONNECTION_PRESETS, ConnectionPreset
 from custom_components.topology.entity_utils.derivations import (
     build_health,
     derive,
@@ -337,6 +338,54 @@ async def test_edge_geometry_flags_vertical_edge_that_cannot_climb(
     )
     report = derive_consistency(store.snapshot(), area_registry, two_floor_registry)
     assert report.vertical_edges_without_vertical_passage == ()
+
+
+async def test_edge_geometry_ignores_an_impassable_vertical_edge(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    two_floor_registry: fr.FloorRegistry,
+) -> None:
+    """A stacked pair separated by a slab is not a broken staircase.
+
+    The advisory asks "this edge claims a route between storeys — how does
+    anyone climb it?". An all-``passage: none`` bundle claims no route: it is
+    the ceiling between a room and the room above, which is exactly what the
+    ``ceiling`` preset models. Flagging it fired the advisory on correct models.
+    """
+    floors = {floor.name: floor.floor_id for floor in two_floor_registry.async_list_floors()}
+    area_registry.async_update("flur", floor_id=floors["Ground"])
+    area_registry.async_update("wohnzimmer", floor_id=floors["Upper"])
+    store = setup_integration.runtime_data.store
+
+    ceiling = CONNECTION_PRESETS[ConnectionPreset.CEILING]
+    await store.async_upsert_edge(
+        "flur",
+        "wohnzimmer",
+        [
+            {
+                "passage": ceiling.passage.value,
+                "barrier": ceiling.barrier.value,
+                "preset_name": ConnectionPreset.CEILING.value,
+            }
+        ],
+    )
+    report = derive_consistency(store.snapshot(), area_registry, two_floor_registry)
+    assert report.vertical_edges_without_vertical_passage == ()
+    assert report.edges_spanning_multiple_floors == ()
+
+    # Adding one crossable, non-climbing connection to the same bundle *does*
+    # make a claim, and is flagged again.
+    await store.async_upsert_edge(
+        "flur",
+        "wohnzimmer",
+        [
+            {"passage": ceiling.passage.value, "barrier": ceiling.barrier.value},
+            {"passage": "level", "barrier": "door"},
+        ],
+    )
+    report = derive_consistency(store.snapshot(), area_registry, two_floor_registry)
+    assert report.vertical_edges_without_vertical_passage == ("flur::wohnzimmer",)
 
 
 async def test_edge_geometry_ignores_same_floor_and_unknown_levels(

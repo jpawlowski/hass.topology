@@ -50,6 +50,13 @@ FIELD_CONNECTIONS = "connections"
 FIELD_LEVEL = "level"
 FIELD_SCOPE = "scope"
 FIELD_SOURCE = "source"
+# Read-action field names. ``from``/``to`` would mirror the WebSocket command,
+# but ``from`` is a Jinja keyword and these fields exist to be used from
+# templates, so both ends are spelled ``*_area``.
+FIELD_FROM_AREA = "from_area"
+FIELD_TO_AREA = "to_area"
+FIELD_TRAVERSABLE = "traversable_only"
+FIELD_GLAZED_ONLY = "glazed_only"
 
 # Projection scope + import source domains (§2.6/§2.7).
 PROJECTION_SCOPES = ("all", "environment", "type", "trust")
@@ -128,3 +135,37 @@ IMPORT_FROM_CORE_SCHEMA = vol.Schema(
         vol.Required(FIELD_SOURCE): vol.In(IMPORT_SOURCE_VALUES),
     }
 )
+
+
+# --- the six read schemas (SupportsResponse.ONLY) --------------------------
+# Deliberately permissive: a read cannot corrupt anything, so only the shape is
+# validated here and area existence stays with ``validation.require_area``,
+# which produces the translated ``area_not_found`` a caller can act on.
+
+GET_NEIGHBORS_SCHEMA = vol.Schema(
+    {
+        vol.Required(FIELD_AREA_ID): cv.string,
+    }
+)
+
+GET_PATH_SCHEMA = vol.Schema(
+    {
+        vol.Required(FIELD_FROM_AREA): cv.string,
+        vol.Required(FIELD_TO_AREA): cv.string,
+        vol.Optional(FIELD_TRAVERSABLE, default=False): cv.boolean,
+    }
+)
+
+GET_PERIMETER_SCHEMA = vol.Schema({})
+
+GET_CONNECTIONS_FACING_OUTDOOR_SCHEMA = vol.Schema(
+    {
+        # A list, so "the east and south facades" is one call. Omitted = no filter.
+        vol.Optional(FIELD_SIDE): vol.All(cv.ensure_list, [vol.In(_SIDE_VALUES)]),
+        vol.Optional(FIELD_GLAZED_ONLY, default=False): cv.boolean,
+    }
+)
+
+GET_HEALTH_SCHEMA = vol.Schema({})
+
+GET_MODEL_SCHEMA = vol.Schema({})

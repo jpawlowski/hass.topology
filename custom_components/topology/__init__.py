@@ -35,8 +35,8 @@ from .const import (
     CONFIG_ENTRY_MINOR_VERSION,
     CONFIG_ENTRY_VERSION,
     DOMAIN,
+    ISSUE_DOC_ANCHORS,
     ISSUE_STORE_FUTURE_VERSION,
-    LEARN_MORE_URL,
     LEGACY_CONF_KEYS,
     LOGGER,
     PANEL_BUILD_MANIFEST,
@@ -269,8 +269,14 @@ async def async_setup_entry(
             is_fixable=False,
             severity=ir.IssueSeverity.ERROR,
             translation_key=ISSUE_STORE_FUTURE_VERSION,
-            learn_more_url=LEARN_MORE_URL,
-            translation_placeholders={"version": str(err.version)},
+            # Not panel-fixable — setup aborted, so there is no panel to open.
+            # The link and the in-description anchor are the same documentation
+            # section (Phase 8 §4.2, D11).
+            learn_more_url=ISSUE_DOC_ANCHORS[ISSUE_STORE_FUTURE_VERSION],
+            translation_placeholders={
+                "version": str(err.version),
+                "docs": ISSUE_DOC_ANCHORS[ISSUE_STORE_FUTURE_VERSION],
+            },
         )
         raise ConfigEntryError("topology store was written by a newer version") from err
     except StoreCorruptError as err:

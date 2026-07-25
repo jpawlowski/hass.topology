@@ -73,6 +73,7 @@ export class TopologyPanel extends LitElement {
     this.addEventListener("topology-toast", this.onToast as EventListener);
     this.addEventListener("area-selected", this.onAreaSelected as EventListener);
     this.addEventListener("edge-selected", this.onEdgeSelected as EventListener);
+    this.addEventListener("floor-requested", this.onFloorRequested as EventListener);
     this.addEventListener("selection-cleared", this.clearSelection);
     this.addEventListener("keydown", this.onKeyDown);
   }
@@ -84,6 +85,7 @@ export class TopologyPanel extends LitElement {
     this.removeEventListener("topology-toast", this.onToast as EventListener);
     this.removeEventListener("area-selected", this.onAreaSelected as EventListener);
     this.removeEventListener("edge-selected", this.onEdgeSelected as EventListener);
+    this.removeEventListener("floor-requested", this.onFloorRequested as EventListener);
     this.removeEventListener("selection-cleared", this.clearSelection);
     this.removeEventListener("keydown", this.onKeyDown);
   }
@@ -110,6 +112,20 @@ export class TopologyPanel extends LitElement {
   private onEdgeSelected = (ev: CustomEvent<{ edge: EdgeOut }>): void => {
     this.selectedEdgeId = ev.detail.edge.edge_id;
     this.selectedAreaId = null;
+  };
+
+  /**
+   * Follow an inter-floor connector to the floor it points at.
+   *
+   * The map draws these stubs but owns no navigation — it takes plain data and
+   * emits events (§4.2, D15) — so switching the floor is the panel's job. The
+   * far area is selected on arrival, otherwise the user lands on an unfamiliar
+   * floor with nothing indicating why.
+   */
+  private onFloorRequested = (ev: CustomEvent<{ floorId: string | null; areaId: string }>): void => {
+    this.activeFloor = ev.detail.floorId;
+    this.selectedAreaId = ev.detail.areaId;
+    this.selectedEdgeId = null;
   };
 
   private clearSelection = (): void => {

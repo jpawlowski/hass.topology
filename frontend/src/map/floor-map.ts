@@ -43,6 +43,28 @@ const NODE_HEIGHT = 64;
 const MIN_ZOOM = 0.4;
 const MAX_ZOOM = 4;
 
+/** Length of an inter-floor connector stub, in viewBox units. */
+const CONNECTOR_LENGTH = 30;
+
+/**
+ * One edge that leaves the floor on screen, resolved from the visible side.
+ *
+ * A single-floor view can draw no line for these — the far node is not laid
+ * out — but hiding them made declared vertical connections look undeclared, and
+ * counting them only told the user that something existed somewhere. A stub
+ * pointing the way the edge actually goes is the smallest thing that answers
+ * "what is above this room".
+ */
+interface Connector {
+  edge: EdgeOut;
+  /** The endpoint that *is* on screen. */
+  areaId: string;
+  /** The endpoint that is not. */
+  otherId: string;
+  /** `1` = the far side is above, `-1` = below, `0` = no resolvable level. */
+  direction: 1 | 0 | -1;
+}
+
 @customElement("topology-floor-map")
 export class TopologyFloorMap extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
@@ -138,13 +160,7 @@ export class TopologyFloorMap extends LitElement {
     const edges = this.edges.filter(
       (edge) => !edge.orphaned_at && visibleIds.has(edge.area_a) && visibleIds.has(edge.area_b),
     );
-    // Edges leaving the current floor cannot be drawn as a line, but hiding them
-    // silently made vertical connections look undeclared. Count them instead.
-    const offFloor = this.edges.filter(
-      (edge) =>
-        !edge.orphaned_at &&
-        visibleIds.has(edge.area_a) !== visibleIds.has(edge.area_b),
-    ).length;
+    const connectors = this.offFloorConnectors(visibleIds);
     const view = this.viewOverride ?? layout.extent;
     const viewBox = `${view.x} ${view.y} ${view.width} ${view.height}`;
 
@@ -169,6 +185,9 @@ export class TopologyFloorMap extends LitElement {
           <g class="edges">
             ${edges.map((edge) => this.renderEdge(edge, layout.positions, flaggedEdges.has(edge.edge_id)))}
           </g>
+          <g class="connectors">
+            ${this.renderConnectors(connectors, layout.positions, flaggedEdges)}
+          </g>
           <g class="nodes">
             ${areas.map((area) => this.renderNode(area, layout.positions, flagged.has(area.area_id)))}
           </g>
@@ -178,8 +197,8 @@ export class TopologyFloorMap extends LitElement {
           ${this.viewOverride !== null
             ? html`<button class="reset" @click=${this.resetView}>${localize("map.reset_view")}</button>`
             : nothing}
-          ${offFloor > 0
-            ? html`<p class="offfloor">${localize("map.offfloor", { count: offFloor })}</p>`
+          ${connectors.length > 0
+            ? html`<p class="offfloor">${localize("map.offfloor", { count: connectors.length })}</p>`
             : nothing}
           <p class="hint">${localize("map.hint")}</p>
         </div>
@@ -229,6 +248,127 @@ export class TopologyFloorMap extends LitElement {
         <text class="band-label" x="12" y=${band.y - 18}>${this.floorName(band.floorId)}</text>
       </g>
     `;
+  }
+
+  /**
+   * Edges with exactly one endpoint on the visible floor, resolved from that
+   * endpoint's point of view.
+   *
+   * `level_delta` is signed `area_a -> area_b`, so it has to be flipped when the
+   * visible side is `area_b` — otherwise every second connector points the wrong
+   * way, which is worse than not drawing it at all.
+   */
+  private offFloorConnectors(visibleIds: Set<string>): Connector[] {
+    const result: Connector[] = [];
+    for (const edge of this.edges) {
+      if (edge.orphaned_at) {
+        continue;
+      }
+      const aVisible = visibleIds.has(edge.area_a);
+      if (aVisible === visibleIds.has(edge.area_b)) {
+        continue;
+      }
+      const areaId = aVisible ? edge.area_a : edge.area_b;
+      const otherId = aVisible ? edge.area_b : edge.area_a;
+      const delta = edge.level_delta;
+      const signed = delta === null || delta === 0 ? 0 : Math.sign(aVisible ? delta : -delta);
+      result.push({ edge, areaId, otherId, direction: signed as 1 | 0 | -1 });
+    }
+    return result;
+  }
+
+  private renderConnectors(
+    connectors: Connector[],
+    positions: Map<string, Point>,
+    flaggedEdges: Set<string>,
+  ) {
+    // Fan several connectors out across the node's width instead of stacking
+    // them on one point, so two stairs from the same landing stay distinguishable.
+    const byArea = new Map<string, Connector[]>();
+    for (const connector of connectors) {
+      const bucket = byArea.get(connector.areaId);
+      if (bucket === undefined) {
+        byArea.set(connector.areaId, [connector]);
+      } else {
+        bucket.push(connector);
+      }
+    }
+    return [...byArea.entries()].flatMap(([areaId, group]) =>
+      group.map((connector, index) =>
+        this.renderConnector(connector, positions.get(areaId), index, group.length, flaggedEdges),
+      ),
+    );
+  }
+
+  private renderConnector(
+    connector: Connector,
+    point: Point | undefined,
+    index: number,
+    total: number,
+    flaggedEdges: Set<string>,
+  ) {
+    if (!point) {
+      return nothing;
+    }
+    // A connector with no resolvable level is drawn upward but labelled without a
+    // direction — pretending to know which way it goes would be a lie the map
+    // cannot back up.
+    const up = connector.direction >= 0;
+    const spread = NODE_WIDTH * 0.6;
+    const x = point.x - spread / 2 + (total === 1 ? spread / 2 : (spread * index) / (total - 1));
+    const yStart = point.y + (up ? -NODE_HEIGHT / 2 : NODE_HEIGHT / 2);
+    const yEnd = yStart + (up ? -CONNECTOR_LENGTH : CONNECTOR_LENGTH);
+    const style = edgeStyle(connector.edge);
+    const selected = connector.edge.edge_id === this.selectedEdgeId;
+    const classes = [
+      "connector",
+      `barrier-${style.barrier}`,
+      up ? "up" : "down",
+      connector.direction === 0 ? "unknown" : "",
+      flaggedEdges.has(connector.edge.edge_id) ? "flagged" : "",
+      selected ? "selected" : "",
+    ].join(" ");
+    const key = connector.direction === 0 ? "map.connector.unknown" : up ? "map.connector.up" : "map.connector.down";
+    const label = localize(key, {
+      area: this.areaLabel(connector.otherId),
+      floor: this.floorName(this.areaFloor(connector.otherId)),
+    });
+    const head = up ? yEnd + 7 : yEnd - 7;
+    return svg`
+      <g
+        class=${classes}
+        tabindex="0"
+        @click=${() => this.emitEdge(connector.edge)}
+        @keydown=${(ev: KeyboardEvent) => this.onKey(ev, () => this.emitEdge(connector.edge))}
+        @dblclick=${(ev: Event) => this.onConnectorActivate(ev, connector)}
+      >
+        <line class="stem" x1=${x} y1=${yStart} x2=${x} y2=${yEnd}></line>
+        <polyline class="head" points=${`${x - 6},${head} ${x},${yEnd} ${x + 6},${head}`}></polyline>
+        <text class="connector-label" x=${x} y=${up ? yEnd - 8 : yEnd + 18}>${label}</text>
+        <title>${label} — ${localize("map.connector.hint")}</title>
+      </g>
+    `;
+  }
+
+  /** Ask the host to switch floors; the map itself owns no navigation (§4.2, D15). */
+  private onConnectorActivate(ev: Event, connector: Connector): void {
+    // The svg's own dblclick resets the view, which is not what a double-click on
+    // a connector means.
+    ev.stopPropagation();
+    ev.preventDefault();
+    const floorId = this.areaFloor(connector.otherId);
+    this.dispatchEvent(
+      new CustomEvent("floor-requested", {
+        detail: { floorId: floorId === OUTDOOR_BUCKET ? null : floorId, areaId: connector.otherId },
+        bubbles: true,
+        composed: true,
+      }),
+    );
+  }
+
+  /** Registry name of an area that may not be in the rendered set. */
+  private areaLabel(areaId: string): string {
+    return this.hass?.areas?.[areaId]?.name ?? areaId;
   }
 
   private renderEdge(edge: EdgeOut, positions: Map<string, Point>, isFlagged = false) {
@@ -541,6 +681,48 @@ export class TopologyFloorMap extends LitElement {
     .edge.flagged {
       stroke: var(--error-color, #f44336);
       stroke-width: 5;
+    }
+    .connector {
+      cursor: pointer;
+    }
+    .connector .stem,
+    .connector .head {
+      stroke: var(--primary-text-color, #212121);
+      stroke-width: 3;
+      fill: none;
+      opacity: 0.8;
+    }
+    .connector.barrier-door .stem {
+      stroke-dasharray: 10 6;
+    }
+    .connector.barrier-solid .stem {
+      stroke-dasharray: 2 8;
+      opacity: 0.5;
+    }
+    .connector.unknown .stem,
+    .connector.unknown .head {
+      opacity: 0.45;
+    }
+    .connector.flagged .stem,
+    .connector.flagged .head {
+      stroke: var(--error-color, #f44336);
+    }
+    .connector:focus,
+    .connector.selected {
+      outline: none;
+    }
+    .connector:focus .stem,
+    .connector:focus .head,
+    .connector.selected .stem,
+    .connector.selected .head {
+      stroke: var(--primary-color, #03a9f4);
+      stroke-width: 5;
+    }
+    .connector-label {
+      text-anchor: middle;
+      fill: var(--secondary-text-color, #727272);
+      font-size: 12px;
+      pointer-events: none;
     }
     .glyph {
       font-size: 18px;

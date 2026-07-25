@@ -237,6 +237,14 @@ def _derive_edge_geometry(
     Both are advisory. An edge is only judged where both levels resolve, so an
     area without a floor is never flagged here — that is the
     ``indoor_areas_without_floor`` check's job.
+
+    A vertical edge that nobody can pass through at all is **not** flagged. The
+    check asks "this edge claims a route between storeys — how does anyone climb
+    it?", and an edge whose whole bundle is ``passage: none`` makes no such
+    claim: it is the slab between a room and the room above it (the ``ceiling``
+    preset), which is a legitimate adjacency, not a broken staircase. Flagging
+    those made the advisory fire on correct models, which is how an advisory
+    stops being read.
     """
     # Local import: graph imports this module, so the dependency only closes here.
     from custom_components.topology.entity_utils.graph import edge_levels  # noqa: PLC0415
@@ -252,7 +260,8 @@ def _derive_edge_geometry(
             continue
         if abs(delta) > 1:
             spanning.append(edge.edge_id)
-        if not any(connection.passage in _VERTICAL_PASSAGES for connection in edge.connections):
+        crossable = any(connection.passage is not Passage.NONE for connection in edge.connections)
+        if crossable and not any(connection.passage in _VERTICAL_PASSAGES for connection in edge.connections):
             flat_vertical.append(edge.edge_id)
     return tuple(sorted(spanning)), tuple(sorted(flat_vertical))
 

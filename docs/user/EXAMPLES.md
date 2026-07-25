@@ -1,7 +1,7 @@
 # Examples
 
 Ready-to-use automations, templates, and queries built on the real Topology surface: the two always-enabled
-entities and their attributes, the optional per-area sensors, the projected area labels, the seven service
+entities and their attributes, the optional per-area sensors, the projected area labels, the thirteen service
 actions, and the WebSocket API.
 
 Everything below uses actual entity ids and attribute names. Replace area ids (`living_room`, `hallway`, …) and
@@ -15,13 +15,16 @@ Quick reference for what is available where:
 | `sensor.topology_house`                                   | Model completeness and household counts                                       | Automations, templates, dashboards         |
 | `sensor.topology_<area>_type` / `_environment` / `_trust` | One area's annotation as an entity state (disabled by default)                | Automations, templates, dashboards         |
 | Projected labels `topology:<dimension>:<value>`           | Annotation-based targeting of areas and their entities                        | Automation `target:`, templates, UI        |
-| Service actions                                           | Writing annotations, connections, and floor levels                            | Automations, scripts                       |
-| WebSocket API                                             | The full model: graph, bearings, `glazed`, per-connection detail, health      | Consumer scripts, browser console, add-ons |
+| Write actions (`annotate_area`, …)                        | Writing annotations, connections, and floor levels                            | Automations, scripts                       |
+| Read actions (`topology.get_*`)                           | The full model: graph, bearings, `glazed`, per-connection detail, health      | Automations, scripts, blueprints           |
+| WebSocket API                                             | The same model, event-driven                                                  | Consumer scripts, browser console, add-ons |
 
 > [!NOTE]
 > Per-connection detail — the cardinal **side**, `glazed`, `passage`/`barrier` — is deliberately not projected
-> onto labels and not exposed as an entity attribute, so a YAML-only automation cannot filter by bearing. That
-> is what the [WebSocket API](#reading-the-model-over-the-websocket-api) is for.
+> onto labels and not exposed as an entity attribute, because that would put a registry entry behind every
+> window in the house. It is reachable all the same: from YAML through the
+> [read actions](#reading-the-model-from-an-automation), and from a consumer through the
+> [WebSocket API](#reading-the-model-over-the-websocket-api).
 
 ## Perimeter automations
 
@@ -464,6 +467,103 @@ content: |
 
 Requires the trust projection to be enabled.
 
+## Reading the model from an automation
+
+Six actions return their answer instead of changing anything. They are what makes the graph, a connection's
+cardinal side, the full perimeter set, and the health lists usable from YAML — none of that is an entity
+attribute, and an automation cannot open a WebSocket. Call one with `response_variable:` and the result is an
+ordinary variable for the rest of the automation.
+
+They need no admin rights and write nothing, so they are safe to call from any automation, script, or template
+sensor.
+
+| Action                                    | Takes                                      | Returns                                                                                           |
+| ----------------------------------------- | ------------------------------------------ | ------------------------------------------------------------------------------------------------- |
+| `topology.get_neighbors`                  | `area_id`                                  | `neighbors[]` with `edge_id`, `axis`, `level_delta`, `is_perimeter`, `traversable`                |
+| `topology.get_path`                       | `from_area`, `to_area`, `traversable_only` | `path[]`, `hops` (`-1` when unreachable), `distance` (hops plus every storey change)              |
+| `topology.get_perimeter`                  | —                                          | Every perimeter connection open or not, plus `count` and `monitored_count`                        |
+| `topology.get_connections_facing_outdoor` | optional `side[]`, `glazed_only`           | Openings proven to face open air with `side`, `passage`, `barrier`, `glazed`; plus `area_ids`     |
+| `topology.get_health`                     | —                                          | The completeness/consistency signal with every list behind the repair cards                       |
+| `topology.get_model`                      | —                                          | The whole readable model — areas with `beyond` and exterior connections, edges with their bundles |
+
+> [!NOTE]
+> `get_path` calls its endpoints `from_area` / `to_area`, not `from` / `to` like the WebSocket command:
+> `from` is a Jinja keyword, so `{{ result.from }}` would not parse.
+
+### Close the covers on the sunny side
+
+The query that used to require the browser console. `area_ids` is the deduplicated area list, ready to target:
+
+```yaml
+actions:
+  - action: topology.get_connections_facing_outdoor
+    data:
+      side: [W]
+      glazed_only: true
+    response_variable: west
+  - action: cover.close_cover
+    target:
+      area_id: "{{ west.area_ids }}"
+```
+
+The shipped `sun_side_covers.yaml` blueprint is this, plus a guard that skips any area with an opening standing
+open.
+
+### Refuse to arm while part of the envelope is unobservable
+
+`get_perimeter` returns the whole perimeter, not just what is open, so an automation can tell "everything is
+closed" from "I cannot see everything":
+
+```yaml
+actions:
+  - action: topology.get_perimeter
+    response_variable: perimeter
+  - condition: template
+    value_template: "{{ perimeter.count == perimeter.monitored_count }}"
+  - action: alarm_control_panel.alarm_arm_away
+    target:
+      entity_id: alarm_control_panel.house
+```
+
+The same numbers are on `binary_sensor.topology_perimeter_open` as `monitored_connections` and
+`monitored_count` when you want them without a service call.
+
+### Warn when the model has drifted
+
+```yaml
+triggers:
+  - trigger: time
+    at: "09:00:00"
+actions:
+  - action: topology.get_health
+    response_variable: health
+  - condition: template
+    value_template: "{{ health.status != 'ok' }}"
+  - action: notify.persistent_notification
+    data:
+      message: >-
+        Topology needs a look: {{ health.isolated_areas | count }} isolated area(s),
+        {{ health.contradictory_bearings | count }} contradictory bearing(s),
+        {{ health.unannotated_areas | count }} unannotated.
+```
+
+### How far is the nursery from the front door
+
+```yaml
+actions:
+  - action: topology.get_path
+    data:
+      from_area: nursery
+      to_area: hallway
+      traversable_only: true
+    response_variable: route
+  - condition: template
+    value_template: "{{ route.path is not none and route.distance <= 3 }}"
+```
+
+`distance` counts every storey the route changes on top of the hops, so a landing two floors up does not look
+as near as the room next door.
+
 ## Reading the model over the WebSocket API
 
 Everything the panel shows is available to consumers over Home Assistant's WebSocket connection. All commands
@@ -507,8 +607,9 @@ console.log(
 
 ### West-facing openings before sunset
 
-This is the query behind the "close the covers on the sunny side" use case. `side` is per connection, so it
-lives here rather than on an entity attribute:
+The consumer-side form of the query. Inside Home Assistant, prefer
+[`topology.get_connections_facing_outdoor`](#close-the-covers-on-the-sunny-side) — it does the filtering and
+the deduplication for you.
 
 ```js
 const conn = (await window.hassConnection).conn;
@@ -519,10 +620,6 @@ const { connections } = await conn.sendMessagePromise({
 const westGlazed = connections.filter((c) => c.side === "W" && c.glazed);
 console.log(westGlazed.map((c) => c.area_id));
 ```
-
-To act on it from Home Assistant, run the query in a consumer (a small script, an add-on, or a custom card),
-then call the ordinary cover actions against the returned `area_id` values — for example
-`cover.close_cover` with `target: { area_id: [...] }`.
 
 ### A consumer script
 
@@ -583,29 +680,32 @@ blueprint as usual.
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | `perimeter_open_at_night.yaml`  | Notifies when the derived perimeter opens inside a time window, with a grace delay and a dead-sensor guard.              |
 | `perimeter_arming.yaml`         | Arms an alarm panel once everybody has left and the perimeter is closed; names the rooms holding it open when it is not. |
-| `sun_side_covers.yaml`          | Closes covers in the areas facing the setting sun, skipping any area with an opening standing open.                      |
+| `sun_side_covers.yaml`          | Closes covers in the areas facing the setting sun — resolved live via `topology.get_connections_facing_outdoor`.         |
 | `ventilation_coordination.yaml` | Pauses mechanical ventilation while the envelope is open and resumes it once closed.                                     |
 
-All four read only the two always-enabled entities, so none of them needs the per-area sensors or label
-projection turned on. Every one refuses to act — and says so — when `monitored_count` is `0`, because nothing
-is bound yet.
+None of them needs the per-area sensors or the label projection turned on: three read only the two
+always-enabled entities, and `sun_side_covers.yaml` additionally calls `topology.get_connections_facing_outdoor`,
+which is available to everyone. Every one refuses to act — and says so — when `monitored_count` is `0`, because
+nothing is bound yet.
 
-### What a blueprint cannot see
+### What a blueprint can and cannot see
 
-A blueprint can only read entity states and attributes. Several things Topology models are deliberately **not**
-on any entity, to keep the entity registry small: a connection's cardinal `side` and `glazed` flag, its
-`passage`/`barrier` pair, the adjacency graph (`neighbors`, `path`, `hops`, `distance`), and every health list
-except `unannotated_areas`. Those live on the WebSocket API only.
+Several things Topology models are deliberately **not** on any entity, to keep the entity registry small: a
+connection's cardinal `side` and `glazed` flag, its `passage`/`barrier` pair, the adjacency graph, and every
+health list except `unannotated_areas`. That is a decision about the entity registry, not about access — all
+of it is reachable from a blueprint through the [read actions](#reading-the-model-from-an-automation), which is
+how `sun_side_covers.yaml` resolves the sun-facing areas on every run instead of asking you to paste a list in.
 
-The practical consequence: an automation that needs "my west-facing windows" cannot compute that set itself. Run
-the query once and paste the result in — `sun_side_covers.yaml` is built exactly that way and carries the query
-in its description. With the Home Assistant UI open, in the browser console:
+What is still out of a blueprint's reach:
 
-```js
-const conn = (await window.hassConnection).conn;
-const { connections } = await conn.sendMessagePromise({ type: "topology/connections_facing_outdoor" });
-console.log([...new Set(connections.filter((c) => c.side === "W" && c.glazed).map((c) => c.area_id))]);
-```
+| Not reachable                                | Why                                                                                                                                |
+| -------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| Per-connection detail as a **trigger**       | The read actions are pull-only. Trigger on `binary_sensor.topology_perimeter_open` or a time, then query.                          |
+| A per-area annotation as an **entity state** | Only if you enable the per-area sensors or the label projection, both off by default — so a shipped blueprint cannot depend on it. |
+| Live change notifications                    | `topology/subscribe_updates` is WebSocket-only; from YAML, re-query when you need the answer.                                      |
+
+None of the four shipped blueprints depends on an opt-in surface. `sun_side_covers.yaml` is the only one that
+calls a read action; the other three work from the perimeter entity's attributes alone.
 
 ## Related documentation
 

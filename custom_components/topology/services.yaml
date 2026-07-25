@@ -63,6 +63,7 @@ declare_connection:
             - interior_door
             - open_passage
             - shared_wall
+            - ceiling
             - open_stair
             - enclosed_stair
             - lift
@@ -155,3 +156,53 @@ import_from_core:
           options:
             - aliases
             - labels
+
+# --- read actions (response only) -------------------------------------------
+# Each returns its answer in a `response_variable`; they write nothing. These
+# are what makes the graph, a connection's `side`/`glazed`/`passage`/`barrier`,
+# the full perimeter set, and the health lists reachable from YAML at all —
+# none of them is an entity attribute by design.
+
+get_neighbors:
+  fields:
+    area_id:
+      required: true
+      selector:
+        area:
+
+get_path:
+  fields:
+    from_area:
+      required: true
+      selector:
+        area:
+    to_area:
+      required: true
+      selector:
+        area:
+    traversable_only:
+      default: false
+      selector:
+        boolean:
+
+get_perimeter:
+
+get_connections_facing_outdoor:
+  fields:
+    side:
+      selector:
+        select:
+          multiple: true
+          options:
+            - N
+            - E
+            - S
+            - W
+    glazed_only:
+      default: false
+      selector:
+        boolean:
+
+get_health:
+
+get_model:

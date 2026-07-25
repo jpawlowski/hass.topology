@@ -161,6 +161,7 @@ class ConnectionPreset(StrEnum):
     INTERIOR_DOOR = "interior_door"
     OPEN_PASSAGE = "open_passage"
     SHARED_WALL = "shared_wall"
+    CEILING = "ceiling"
     OPEN_STAIR = "open_stair"
     ENCLOSED_STAIR = "enclosed_stair"
     LIFT = "lift"
@@ -216,6 +217,19 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
     ),
     ConnectionPreset.SHARED_WALL: PresetDefinition(
         preset=ConnectionPreset.SHARED_WALL,
+        passage=Passage.NONE,
+        barrier=Barrier.SOLID,
+        glazed_default=False,
+        sensor_allowed=False,
+        scope=PresetScope.INTERIOR,
+    ),
+    # The vertical sibling of SHARED_WALL: two areas stacked on top of each
+    # other, separated by the slab between them. It expands identically — nobody
+    # passes through a floor — but it is a distinct preset because a
+    # ``shared_wall`` between storeys reads as a modelling mistake, and because
+    # the geometry advisory needs to be able to say "this one is fine".
+    ConnectionPreset.CEILING: PresetDefinition(
+        preset=ConnectionPreset.CEILING,
         passage=Passage.NONE,
         barrier=Barrier.SOLID,
         glazed_default=False,
@@ -556,9 +570,10 @@ class ConsistencyReport:
     # opening makes this legitimate, so it is a prompt to check the floor
     # assignments, not an error.
     edges_spanning_multiple_floors: tuple[str, ...]
-    # Edges between storeys whose every connection is step-free or walled off —
-    # nothing on them actually climbs, which usually means the wrong kind was
-    # picked (an interior door where a stair belongs).
+    # Edges between storeys that *can* be crossed but on which nothing climbs —
+    # an interior door or an open passage where a stair belongs. An edge nobody
+    # can cross at all (the ``ceiling`` preset, or any all-``passage: none``
+    # bundle) is a slab, not a broken route, and is deliberately not listed.
     vertical_edges_without_vertical_passage: tuple[str, ...]
 
 

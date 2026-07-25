@@ -42,9 +42,11 @@ ORPHAN_UNDO_WINDOW = timedelta(hours=72)
 DEFAULT_UNANNOTATED_REPAIR_THRESHOLD = 3
 
 # --- repair issues (Phase 5, PLAN-topology-phase5.md §2) --------------------
-# Shared learn-more target for every topology repair card. Per-issue doc
-# anchors are deferred to the Phase 8 user docs (decision D11); until then all
-# cards point at the repository.
+# Fallback learn-more target. After Phase 8 this is no card's actual target —
+# every issue has both a documentation anchor (``ISSUE_DOC_ANCHORS``) and, where
+# the panel can fix it, a deep link (``ISSUE_DEEP_LINKS``). It stays as the
+# default of ``repairs._toggle`` so a future issue id added without an entry in
+# either map still produces a working link instead of a dead one.
 LEARN_MORE_URL = "https://github.com/jpawlowski/hass.topology"
 
 # One issue id per issue class (§2); ``translation_key == issue_id`` throughout
@@ -117,6 +119,38 @@ ISSUE_DEEP_LINKS: dict[str, str] = {
     ISSUE_VERTICAL_WITHOUT_PASSAGE: f"{_PANEL_DEEP_LINK}?focus=geometry",
 }
 
+# --- per-issue documentation anchors (Phase 8 §4.2, D11) -------------------
+# The IOU the comment above ``LEARN_MORE_URL`` carried since Phase 5, paid.
+#
+# A repair card has exactly one link *field*, and Phase-7 D9 spent it on
+# remediation for the eight cards the panel can fix — walking the user to the
+# fix beats walking them to prose. So the documentation link is not a second
+# ``learn_more_url``; it is rendered *inside the description*, which the repairs
+# dialog passes through ``<ha-markdown>`` (verified against the frontend pinned
+# by HA 2026.7.0). ``repairs._toggle`` injects the anchor as the ``docs``
+# placeholder, and every ``issues.*.description`` in ``translations/en.json``
+# ends with a markdown link to it. Both links therefore coexist on every card:
+# the button remediates, the text explains.
+#
+# Absolute URLs, not repository-relative paths: a repair card renders in the
+# frontend, which has no notion of this repository's layout. The fragments must
+# match the headings GitHub generates in CONFIGURATION.md — asserted in
+# ``tests/test_repairs_doc_anchors.py``, so a heading rename breaks CI instead
+# of shipping a dead link.
+_DOCS_BASE = f"{LEARN_MORE_URL}/blob/main/docs/user/CONFIGURATION.md"
+ISSUE_DOC_ANCHORS: dict[str, str] = {
+    ISSUE_UNANNOTATED_THRESHOLD: f"{_DOCS_BASE}#several-areas-are-not-annotated",
+    ISSUE_ISOLATED_AREAS: f"{_DOCS_BASE}#some-areas-are-not-connected",
+    ISSUE_INDOOR_WITHOUT_FLOOR: f"{_DOCS_BASE}#indoor-areas-have-no-floor",
+    ISSUE_CONTRADICTORY_BEARINGS: f"{_DOCS_BASE}#contradictory-wall-bearings",
+    ISSUE_EXTERIOR_NON_OUTDOOR: f"{_DOCS_BASE}#exterior-opening-on-a-non-outdoor-side",
+    ISSUE_EDGES_SPANNING_FLOORS: f"{_DOCS_BASE}#an-edge-spans-more-than-one-storey",
+    ISSUE_VERTICAL_WITHOUT_PASSAGE: f"{_DOCS_BASE}#a-vertical-edge-has-no-vertical-passage",
+    ISSUE_ORPHANED_ENTRIES: f"{_DOCS_BASE}#topology-has-orphaned-entries",
+    ISSUE_UNKNOWN_ENUM: f"{_DOCS_BASE}#topology-store-has-unrecognized-values",
+    ISSUE_STORE_FUTURE_VERSION: f"{_DOCS_BASE}#topology-store-is-from-a-newer-version",
+}
+
 # --- service actions (Phase 6, PLAN-topology-phase6.md §2) ------------------
 # The seven v1 services, all ``topology.<name>``, registered in
 # ``service_actions.async_setup_services`` from ``async_setup`` (§2, D2).
@@ -127,6 +161,18 @@ SERVICE_SET_EXTERIOR = "set_exterior"
 SERVICE_SET_FLOOR_LEVEL = "set_floor_level"
 SERVICE_PROJECT_LABELS = "project_labels"
 SERVICE_IMPORT_FROM_CORE = "import_from_core"
+
+# The six response-returning read actions. They carry no admin gate (reads,
+# mirroring the WebSocket read commands) and are the only way YAML, a template,
+# or a blueprint can reach the graph, the cardinal ``side``/``glazed`` detail,
+# the full perimeter set, and the health lists — none of which is an entity
+# attribute by design (master §1a).
+SERVICE_GET_NEIGHBORS = "get_neighbors"
+SERVICE_GET_PATH = "get_path"
+SERVICE_GET_PERIMETER = "get_perimeter"
+SERVICE_GET_CONNECTIONS_FACING_OUTDOOR = "get_connections_facing_outdoor"
+SERVICE_GET_HEALTH = "get_health"
+SERVICE_GET_MODEL = "get_model"
 
 # --- label projection (Phase 6, PLAN-topology-phase6.md §2.6) ---------------
 # Projected area labels are named ``topology:<dim>:<value>`` (frozen format,

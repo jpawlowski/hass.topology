@@ -33,6 +33,11 @@ if TYPE_CHECKING:
 _UNOBSERVABLE = {STATE_UNAVAILABLE, STATE_UNKNOWN}
 
 
+def _sort_key(entry: dict[str, Any]) -> tuple[str, str, int]:
+    """Stable ordering for the connection attribute lists (§2.5)."""
+    return (entry["edge_id"] or "", entry["area_id"], entry["connection_index"])
+
+
 class TopologyPerimeterBinarySensor(TopologyEntity, BinarySensorEntity):
     """Aggregate: on when any bound perimeter sensor is open (§2)."""
 
@@ -66,33 +71,49 @@ class TopologyPerimeterBinarySensor(TopologyEntity, BinarySensorEntity):
         """On iff any bound perimeter sensor is open (§2.3)."""
         return any(self._sensor_open(connection.sensor_entity_id) for connection in self._monitored())
 
+    @staticmethod
+    def _entry(connection: PerimeterConnection, entity_id: str) -> dict[str, Any]:
+        """Serialize one monitored perimeter connection (the frozen §2.5 shape)."""
+        return {
+            "edge_id": connection.edge_id,
+            "area_id": connection.area_id,
+            "connection_index": connection.connection_index,
+            "source_entity": entity_id,
+        }
+
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Return the open-connection list and observability counts (§2.5)."""
+        """Return the monitored/open connection lists and observability counts (§2.5).
+
+        ``monitored_connections`` is the whole observable envelope, not just the
+        part of it that is open right now. An arming automation has to reason
+        about the zones it is arming — "which openings am I trusting this
+        sensor's ``off`` for" — and until this existed the only answer available
+        from YAML was ``monitored_count``, a bare integer. The open subset stays
+        a separate list rather than a flag on each entry, because that is the one
+        automations trigger on and it must stay cheap to read.
+        """
         monitored = self._monitored()
+        monitored_connections: list[dict[str, Any]] = []
         open_connections: list[dict[str, Any]] = []
         unavailable: set[str] = set()
         for connection in monitored:
             entity_id = connection.sensor_entity_id
             if entity_id is None:
                 continue
+            monitored_connections.append(self._entry(connection, entity_id))
             state = self.hass.states.get(entity_id)
             if state is None or state.state in _UNOBSERVABLE:
                 unavailable.add(entity_id)
                 continue
             if state.state == STATE_ON:
-                open_connections.append(
-                    {
-                        "edge_id": connection.edge_id,
-                        "area_id": connection.area_id,
-                        "connection_index": connection.connection_index,
-                        "source_entity": entity_id,
-                    }
-                )
-        open_connections.sort(key=lambda item: (item["edge_id"] or "", item["area_id"], item["connection_index"]))
+                open_connections.append(self._entry(connection, entity_id))
+        monitored_connections.sort(key=_sort_key)
+        open_connections.sort(key=_sort_key)
         return {
             "open_connections": open_connections,
             "open_count": len(open_connections),
+            "monitored_connections": monitored_connections,
             "monitored_count": len(monitored),
             "unavailable_sensors": sorted(unavailable),
         }

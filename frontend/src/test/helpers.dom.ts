@@ -99,6 +99,14 @@ export const PRESETS: PresetOut[] = [
     scope: "interior",
   },
   {
+    preset_name: "ceiling",
+    passage: "none",
+    barrier: "solid",
+    glazed_default: false,
+    sensor_allowed: false,
+    scope: "interior",
+  },
+  {
     preset_name: "enclosed_stair",
     passage: "stairs",
     barrier: "door",

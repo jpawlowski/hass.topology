@@ -24,31 +24,27 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar, floor_registry as fr
 
 from .const import DOMAIN, EVENT_TOPOLOGY_UPDATED
-from .data import (
-    AREA_TYPE_CATALOG,
-    CONNECTION_PRESETS,
-    TYPE_CASCADE,
-    Barrier,
-    BeyondClass,
-    CardinalSide,
-    Environment,
-    OccupancyExtent,
-    Passage,
-    Trust,
-    connection_to_dict,
+from .data import Barrier, BeyondClass, CardinalSide, Environment, OccupancyExtent, Passage, Trust
+from .entity_utils.derivations import build_health, connections_facing_outdoor
+from .read_contract import (
+    annotations_by_id,
+    area_out,
+    edge_out,
+    list_annotations_payload,
+    neighbors_payload,
+    path_result,
+    read_hook_payload,
+    serialize_home_config,
+    unannotated_area_out,
 )
-from .entity_utils.derivations import build_health, connections_facing_outdoor, derive_perimeter, is_perimeter_edge
-from .entity_utils.graph import edge_levels, neighbors as graph_neighbors, path_distance, shortest_path
 from .service_actions.label_projection import async_reconcile_labels
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from homeassistant.core import HomeAssistant
-    from homeassistant.helpers.area_registry import AreaRegistry
-    from homeassistant.helpers.floor_registry import FloorRegistry
 
-    from .data import AreaAnnotation, ConnectionDict, Edge, FloorOverride, TopologyRuntimeData, TopologySnapshot
+    from .data import TopologyRuntimeData
 
 # --- error codes (§4) ------------------------------------------------------
 ERR_NOT_LOADED = "not_loaded"
@@ -111,194 +107,6 @@ def _runtime(hass: HomeAssistant) -> TopologyRuntimeData | None:
         if entry.state is ConfigEntryState.LOADED:
             return entry.runtime_data
     return None
-
-
-def _connection_out(connection: object) -> ConnectionDict:
-    """Serialize a domain Connection; unknown enums already read as null."""
-    return connection_to_dict(connection)  # type: ignore[arg-type]
-
-
-def _area_out(annotation: AreaAnnotation) -> dict[str, Any]:
-    """Serialize an annotated area (§4 area_out); enums null when unknown."""
-    return {
-        "area_id": annotation.area_id,
-        "type": annotation.type,
-        "environment": annotation.environment.value if annotation.environment is not None else None,
-        "trust": annotation.trust.value if annotation.trust is not None else None,
-        "beyond": {side.value: beyond.value for side, beyond in annotation.beyond},
-        "exterior_connections": [_connection_out(connection) for connection in annotation.exterior_connections],
-        "orphaned_at": annotation.orphaned_at,
-        "updated_at": annotation.updated_at,
-    }
-
-
-def _unannotated_area_out(area_id: str) -> dict[str, Any]:
-    """Serialize a registry area that has no annotation (all-null, §4.10)."""
-    return {
-        "area_id": area_id,
-        "type": None,
-        "environment": None,
-        "trust": None,
-        "beyond": {},
-        "exterior_connections": [],
-        "orphaned_at": None,
-        "updated_at": "",
-    }
-
-
-def _edge_out(
-    edge: Edge,
-    area_trust: dict[str, Trust | None],
-    area_reg: AreaRegistry,
-    floor_reg: FloorRegistry,
-    overrides: dict[str, FloorOverride],
-) -> dict[str, Any]:
-    """Serialize an edge with derived axis + level_delta + is_perimeter (§4 edge_out)."""
-    axis, level_delta = edge_levels(edge, area_reg, floor_reg, overrides)
-    return {
-        "edge_id": edge.edge_id,
-        "area_a": edge.area_a,
-        "area_b": edge.area_b,
-        "axis": axis,
-        # Signed a -> b: positive means area_b is the upper one. ``axis`` says
-        # only *that* the edge is vertical, never which way.
-        "level_delta": level_delta,
-        "is_perimeter": is_perimeter_edge(edge, area_trust),
-        "connections": [_connection_out(connection) for connection in edge.connections],
-        "orphaned_at": edge.orphaned_at,
-        "created_at": edge.created_at,
-    }
-
-
-def _annotations_by_id(snapshot: TopologySnapshot) -> dict[str, AreaAnnotation]:
-    return {annotation.area_id: annotation for annotation in snapshot.areas}
-
-
-def _all_area_ids(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list[str]:
-    """Return every registry area id plus orphaned store annotations."""
-    registry_ids = [area.id for area in area_reg.async_list_areas()]
-    annotations = _annotations_by_id(snapshot)
-    extra = [area_id for area_id in annotations if area_id not in registry_ids]
-    return registry_ids + extra
-
-
-def _serialize_areas(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list[dict[str, Any]]:
-    annotations = _annotations_by_id(snapshot)
-    return [
-        _area_out(annotations[area_id]) if area_id in annotations else _unannotated_area_out(area_id)
-        for area_id in _all_area_ids(snapshot, area_reg)
-    ]
-
-
-def _serialize_edges(
-    snapshot: TopologySnapshot,
-    area_reg: AreaRegistry,
-    floor_reg: FloorRegistry,
-) -> list[dict[str, Any]]:
-    area_trust = {annotation.area_id: annotation.trust for annotation in snapshot.areas}
-    overrides = {floor.floor_id: floor for floor in snapshot.floors}
-    return [_edge_out(edge, area_trust, area_reg, floor_reg, overrides) for edge in snapshot.edges]
-
-
-def _serialize_floors(
-    snapshot: TopologySnapshot,
-    floor_reg: FloorRegistry,
-) -> list[dict[str, Any]]:
-    """Merge registry floor levels with store overrides, ordered top-down (§4.10 home.floors).
-
-    Emitted highest ``effective_level`` first, so iterating the list reads like a
-    section through the building and a consumer needs no level arithmetic to lay
-    floors out vertically. Floors with no resolvable level sort last and keep
-    registry order (the sort is stable), because there is nothing to place them by.
-
-    The level itself is the registry's number — HA allows ``0`` and negatives, so
-    a ground floor is ``0`` where that is the convention and ``1`` where it is
-    not. Only the relative order matters here; the label always comes from the
-    floor's name, never from the number.
-    """
-    overrides = {floor.floor_id: floor for floor in snapshot.floors}
-    result: list[dict[str, Any]] = []
-    registry_ids: list[str] = []
-    for floor in floor_reg.async_list_floors():
-        registry_ids.append(floor.floor_id)
-        override = overrides.get(floor.floor_id)
-        level_override = override.level_override if override is not None else None
-        effective = floor.level if floor.level is not None else level_override
-        result.append(
-            {
-                "floor_id": floor.floor_id,
-                "registry_level": floor.level,
-                "level_override": level_override,
-                "effective_level": effective,
-            }
-        )
-    for floor_id, override in overrides.items():
-        if floor_id not in registry_ids:
-            result.append(
-                {
-                    "floor_id": floor_id,
-                    "registry_level": None,
-                    "level_override": override.level_override,
-                    "effective_level": override.level_override,
-                }
-            )
-    result.sort(key=lambda floor: (floor["effective_level"] is None, -(floor["effective_level"] or 0)))
-    return result
-
-
-def _serialize_area_types() -> dict[str, Any]:
-    """Ship the area-type catalog + cascade so the panel never hardcodes them (§4.1).
-
-    The catalog is open — any string stays legal — but the shipped defaults and
-    the environment/trust each one suggests are the backend's to define, exactly
-    as with the preset table. Without this the panel would carry a second copy
-    that silently drifts.
-    """
-    return {
-        "catalog": list(AREA_TYPE_CATALOG),
-        "cascade": {
-            area_type: {
-                "environment": environment.value if environment is not None else None,
-                "trust": trust.value if trust is not None else None,
-            }
-            for area_type, (environment, trust) in TYPE_CASCADE.items()
-        },
-    }
-
-
-def _serialize_presets() -> list[dict[str, Any]]:
-    """Return the §3.9 preset table so the panel never hardcodes it (§4.1)."""
-    return [
-        {
-            "preset_name": preset.value,
-            "passage": definition.passage.value,
-            "barrier": definition.barrier.value,
-            "glazed_default": definition.glazed_default,
-            "sensor_allowed": definition.sensor_allowed,
-            # Lets a client offer only the presets that fit the boundary it is
-            # editing, instead of guessing from passage/barrier (which cannot
-            # distinguish an interior door from an outside one).
-            "scope": definition.scope.value,
-        }
-        for preset, definition in CONNECTION_PRESETS.items()
-    ]
-
-
-def _serialize_home_config(snapshot: TopologySnapshot) -> dict[str, Any]:
-    home = snapshot.home_config
-    return {
-        "occupancy_extent": home.occupancy_extent.value,
-        "projection_toggles": {
-            "environment": home.project_environment,
-            "type": home.project_type,
-            "trust": home.project_trust,
-        },
-        "imports_done_at": {
-            "aliases": home.imports_done_at_aliases,
-            "labels": home.imports_done_at_labels,
-        },
-        "unannotated_repair_threshold": home.unannotated_repair_threshold,
-    }
 
 
 def _validate_connection(connection: dict[str, Any], *, allow_inline_trust: bool) -> str | None:
@@ -368,19 +176,9 @@ async def ws_list_annotations(
     if runtime is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "No topology entry is loaded")
         return
-    snapshot = runtime.coordinator.data
-    area_reg = ar.async_get(hass)
-    floor_reg = fr.async_get(hass)
     connection.send_result(
         msg["id"],
-        {
-            "home_config": _serialize_home_config(snapshot),
-            "areas": _serialize_areas(snapshot, area_reg),
-            "edges": _serialize_edges(snapshot, area_reg, floor_reg),
-            "floors": _serialize_floors(snapshot, floor_reg),
-            "presets": _serialize_presets(),
-            "area_types": _serialize_area_types(),
-        },
+        list_annotations_payload(runtime.coordinator.data, ar.async_get(hass), fr.async_get(hass)),
     )
 
 
@@ -396,22 +194,9 @@ async def ws_read_hook(
     if runtime is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "No topology entry is loaded")
         return
-    snapshot = runtime.coordinator.data
-    area_reg = ar.async_get(hass)
-    floor_reg = fr.async_get(hass)
     connection.send_result(
         msg["id"],
-        {
-            "api_version": 1,
-            "home": {
-                "occupancy_extent": snapshot.home_config.occupancy_extent.value,
-                "floors": _serialize_floors(snapshot, floor_reg),
-            },
-            "areas": _serialize_areas(snapshot, area_reg),
-            "edges": _serialize_edges(snapshot, area_reg, floor_reg),
-            "perimeter": derive_perimeter(snapshot, area_reg),
-            "health": build_health(snapshot, area_reg, floor_reg),
-        },
+        read_hook_payload(runtime.coordinator.data, ar.async_get(hass), fr.async_get(hass)),
     )
 
 
@@ -477,19 +262,7 @@ async def ws_neighbors(
     if ar.async_get(hass).async_get_area(area_id) is None:
         connection.send_error(msg["id"], ERR_AREA_NOT_FOUND, f"Unknown area {area_id}")
         return
-    result = [
-        {
-            "area_id": neighbor.area_id,
-            "edge_id": neighbor.edge_id,
-            "axis": neighbor.axis,
-            # Signed from the queried area: positive = the neighbour is above.
-            "level_delta": neighbor.level_delta,
-            "is_perimeter": neighbor.is_perimeter,
-            "traversable": neighbor.traversable,
-        }
-        for neighbor in graph_neighbors(runtime.coordinator.derived.graph, area_id)
-    ]
-    connection.send_result(msg["id"], {"area_id": area_id, "neighbors": result})
+    connection.send_result(msg["id"], neighbors_payload(runtime.coordinator.derived.graph, area_id))
 
 
 @websocket_command(
@@ -517,19 +290,15 @@ async def ws_path(
         if area_reg.async_get_area(area_id) is None:
             connection.send_error(msg["id"], ERR_AREA_NOT_FOUND, f"Unknown area {area_id}")
             return
-    graph = runtime.coordinator.derived.graph
-    path = shortest_path(graph, src, dst, traversable_only=msg["traversable_only"])
+    # This command's endpoint keys stay ``from``/``to`` — the frozen §4.2 shape.
+    # The service transport renames them (``from`` is a Jinja keyword); see
+    # ``read_contract.path_payload``.
+    path, hops, distance = path_result(
+        runtime.coordinator.derived.graph, src, dst, traversable_only=msg["traversable_only"]
+    )
     connection.send_result(
         msg["id"],
-        {
-            "from": src,
-            "to": dst,
-            "path": path,
-            "hops": (len(path) - 1) if path is not None else -1,
-            # Weighted: hops plus every storey change along the way. ``null`` when
-            # a level on the path is unresolvable, or when there is no path.
-            "distance": path_distance(graph, path) if path is not None else None,
-        },
+        {"from": src, "to": dst, "path": path, "hops": hops, "distance": distance},
     )
 
 
@@ -877,7 +646,7 @@ async def ws_update_home_config(
     await async_reconcile_labels(hass, runtime.store.snapshot())
 
     runtime.coordinator.async_publish(runtime.store.snapshot(), "home_config", [])
-    connection.send_result(msg["id"], _serialize_home_config(runtime.store.snapshot()))
+    connection.send_result(msg["id"], serialize_home_config(runtime.store.snapshot()))
 
 
 # --- serialization helpers that need a fresh snapshot ----------------------
@@ -892,15 +661,15 @@ def _validate_area_annotation(annotation: dict[str, Any]) -> str | None:
     if "trust" in annotation and trust is not None and trust not in _TRUST_VALUES:
         return ERR_INVALID_ENUM
     # ``type`` is an open catalog (§2.4 rule 5): any string is legal, so
-    # AREA_TYPE_CATALOG is a suggestion list (shipped by _serialize_area_types),
+    # AREA_TYPE_CATALOG is a suggestion list (shipped by serialize_area_types),
     # never a validation set.
     return None
 
 
 def _area_out_for(runtime: TopologyRuntimeData, area_id: str) -> dict[str, Any]:
-    annotations = _annotations_by_id(runtime.store.snapshot())
+    annotations = annotations_by_id(runtime.store.snapshot())
     annotation = annotations.get(area_id)
-    return _area_out(annotation) if annotation is not None else _unannotated_area_out(area_id)
+    return area_out(annotation) if annotation is not None else unannotated_area_out(area_id)
 
 
 def _edge_out_for(hass: HomeAssistant, runtime: TopologyRuntimeData, edge_id: str) -> dict[str, Any]:
@@ -910,4 +679,4 @@ def _edge_out_for(hass: HomeAssistant, runtime: TopologyRuntimeData, edge_id: st
     area_trust = {annotation.area_id: annotation.trust for annotation in snapshot.areas}
     overrides = {floor.floor_id: floor for floor in snapshot.floors}
     edge = next(edge for edge in snapshot.edges if edge.edge_id == edge_id)
-    return _edge_out(edge, area_trust, area_reg, floor_reg, overrides)
+    return edge_out(edge, area_trust, area_reg, floor_reg, overrides)

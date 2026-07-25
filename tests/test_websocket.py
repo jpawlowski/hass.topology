@@ -45,7 +45,7 @@ async def test_ws_list_annotations_snapshot(
     result = response["result"]
     area_ids = {area["area_id"] for area in result["areas"]}
     assert {"flur", "wohnzimmer", "kueche"} <= area_ids
-    assert len(result["presets"]) == 11
+    assert len(result["presets"]) == 12
     assert result["home_config"]["occupancy_extent"] == "whole_property"
     # The type catalog + cascade ship with the snapshot so the panel holds no
     # second copy of either (the preset table's rule, applied to types).

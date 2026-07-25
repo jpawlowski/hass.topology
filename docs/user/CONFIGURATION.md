@@ -179,7 +179,8 @@ so presets are convenience, never a second object type — and a rare real combi
 | ---------------- | ---------- | --------- | ----------------- | -------------- | -------------------------------------------- |
 | `interior_door`  | `level`    | `door`    | No                | Yes            | The ordinary room door                       |
 | `open_passage`   | `level`    | `open`    | No                | No             | A doorway with no door in it, a wide opening |
-| `shared_wall`    | `none`     | `solid`   | No                | No             | Two rooms that only touch                    |
+| `shared_wall`    | `none`     | `solid`   | No                | No             | Two rooms on one floor that only touch       |
+| `ceiling`        | `none`     | `solid`   | No                | No             | One room stacked on another, slab between    |
 | `open_stair`     | `stairs`   | `open`    | No                | No             | A stairwell with nothing closing it off      |
 | `enclosed_stair` | `stairs`   | `door`    | No                | Yes            | A stair behind a door                        |
 | `lift`           | `elevator` | `door`    | No                | Yes            | A lift between two landings                  |
@@ -191,6 +192,11 @@ so presets are convenience, never a second object type — and a rare real combi
 
 `window` and `outside_door` are the presets you use for **exterior** openings; the rest describe boundaries
 between two of your own areas.
+
+`shared_wall` and `ceiling` expand identically — nobody passes through either — but they are separate presets
+so a stacked pair reads as a floor slab rather than as a wall between storeys. Use `ceiling` whenever the two
+areas are on different floors and nobody climbs between them; Topology's "connection between floors with no way
+to climb" suggestion deliberately never fires on it.
 
 ### What is derived from a connection
 
@@ -388,20 +394,153 @@ projected itself are ignored as import sources — they are outputs, not intent.
 
 ## Repair issues
 
-Topology checks its own data continuously and reconciles these suggestions on every change. Each card
-deep-links to the panel view where you fix it. All of them clear themselves once the underlying condition is
-gone — there is nothing to dismiss manually.
+Topology checks its own data continuously and reconciles these suggestions on every change. All of them clear
+themselves once the underlying condition is gone — there is nothing to dismiss manually.
 
-| Issue                                      | What it means                                                                                                                                             | What to do                                                                                                                                                                                 |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Several areas are not annotated**        | The number of areas with no annotation reached your threshold (default 3).                                                                                | Annotate them in the panel, or raise the threshold in Home configuration if you genuinely do not want to model those areas.                                                                |
-| **Some areas are not connected**           | An area is an endpoint of no interior edge, so it is isolated in the graph.                                                                               | Declare a connection to a neighbor. Adjacency logic and path queries cannot reach an isolated area.                                                                                        |
-| **Indoor areas have no floor**             | An `indoor` area has no floor assigned while the rest of your home does use floors.                                                                       | Assign the floor in Home Assistant (**Settings** → **Areas, labels & zones**). Without it, Topology cannot tell a vertical connection from a horizontal one.                               |
-| **Contradictory wall bearings**            | The same cardinal side of an area is used both for an interior connection and for a `beyond` class — it cannot be both.                                   | Open that area and decide which side is really which. A common cause is copying bearings between mirrored rooms.                                                                           |
-| **Exterior opening on a non-outdoor side** | An opening sits on a side facing `earth`, or a glazed opening faces a `neighbor` party wall.                                                              | Either correct the side's `beyond` class or move the opening. A buried wall admits no opening at all; a party wall admits a door but not a window.                                         |
-| **Topology has orphaned entries**          | Annotations, edges, or floor overrides reference areas or floors you deleted. They are kept for a 72-hour undo window in case the deletion was a mistake. | **Fixable:** submit the card to purge them now. Or restore the area in Home Assistant to keep the data. Doing nothing is fine too — the daily cleanup purges them once the window elapses. |
-| **Topology store has unrecognized values** | The stored model contains values this version does not understand, usually after downgrading.                                                             | Upgrade the integration again. The unrecognized values are shown as unknown but **preserved untouched**, so nothing is lost by upgrading.                                                  |
-| **Topology store is from a newer version** | The store's schema version is newer than this installation supports, so Topology cannot load at all.                                                      | Upgrade the integration again, or restore a compatible backup.                                                                                                                             |
+Each card carries **two** links, because they answer different questions. The button at the bottom of the card
+takes you straight to the panel view where the problem is drawn, so the common case is one click from "what is
+this" to "fixed". The link at the end of the card's text brings you to the matching section below, for when you
+want to know what the check actually means before changing anything. The two cards the panel cannot fix — a
+store from a newer version, and unrecognised values — have no view to open, so both of their links come here.
+
+| Issue                                                                               | What it means                                                                                                                                             | What to do                                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| [Several areas are not annotated](#several-areas-are-not-annotated)                 | The number of areas with no annotation reached your threshold (default 3).                                                                                | Annotate them in the panel, or raise the threshold in Home configuration if you genuinely do not want to model those areas.                                                                |
+| [Some areas are not connected](#some-areas-are-not-connected)                       | An area is an endpoint of no interior edge, so it is isolated in the graph.                                                                               | Declare a connection to a neighbor. Adjacency logic and path queries cannot reach an isolated area.                                                                                        |
+| [Indoor areas have no floor](#indoor-areas-have-no-floor)                           | An `indoor` area has no floor assigned while the rest of your home does use floors.                                                                       | Assign the floor in Home Assistant (**Settings** → **Areas, labels & zones**). Without it, Topology cannot tell a vertical connection from a horizontal one.                               |
+| [Contradictory wall bearings](#contradictory-wall-bearings)                         | The same cardinal side of an area is used both for an interior connection and for a `beyond` class — it cannot be both.                                   | Open that area and decide which side is really which. A common cause is copying bearings between mirrored rooms.                                                                           |
+| [Exterior opening on a non-outdoor side](#exterior-opening-on-a-non-outdoor-side)   | An opening sits on a side facing `earth`, or a glazed opening faces a `neighbor` party wall.                                                              | Either correct the side's `beyond` class or move the opening. A buried wall admits no opening at all; a party wall admits a door but not a window.                                         |
+| [Topology has orphaned entries](#topology-has-orphaned-entries)                     | Annotations, edges, or floor overrides reference areas or floors you deleted. They are kept for a 72-hour undo window in case the deletion was a mistake. | **Fixable:** submit the card to purge them now. Or restore the area in Home Assistant to keep the data. Doing nothing is fine too — the daily cleanup purges them once the window elapses. |
+| [An edge spans more than one storey](#an-edge-spans-more-than-one-storey)           | A connection joins two areas whose floors are more than one storey apart.                                                                                 | Check the floor assignments of both areas. A void, an atrium or a maisonette opening makes this legitimate — the card is a prompt, not an error.                                           |
+| [A vertical edge has no vertical passage](#a-vertical-edge-has-no-vertical-passage) | A connection between two storeys can be crossed, but nothing on it climbs.                                                                                | Change the kind to a stair, ramp, lift, ladder or hatch — or, if the two areas are simply stacked, to `ceiling`.                                                                           |
+| [Topology store has unrecognized values](#topology-store-has-unrecognized-values)   | The stored model contains values this version does not understand, usually after downgrading.                                                             | Upgrade the integration again. The unrecognized values are shown as unknown but **preserved untouched**, so nothing is lost by upgrading.                                                  |
+| [Topology store is from a newer version](#topology-store-is-from-a-newer-version)   | The store's schema version is newer than this installation supports, so Topology cannot load at all.                                                      | Upgrade the integration again, or restore a compatible backup.                                                                                                                             |
+
+Each check in detail:
+
+### Several areas are not annotated
+
+**What it means.** The number of areas in your Home Assistant registry that Topology has no annotation for
+reached the threshold you configured (default 3). Topology never invents annotations, so these areas simply do
+not exist as far as any derivation is concerned.
+
+**What to do.** Open the panel and annotate them — type, environment and trust. If some of those areas are
+genuinely not part of your home model (a virtual area you use for grouping, say), raise the threshold under
+**Home configuration** instead; the card is a nudge, not a rule.
+
+**If you ignore it.** Nothing breaks. Unannotated areas stay out of the perimeter, out of the graph's trust
+reasoning, and out of any label projection — so automations that expect them will simply not see them.
+
+### Some areas are not connected
+
+**What it means.** An area is not an endpoint of any interior connection, so it is isolated in the adjacency
+graph. Nothing borders it and nothing can reach it.
+
+**What to do.** Declare a connection to a neighbouring area. The panel's neighbours editor does this from the
+area itself, so you do not need to find the two rooms on the map first.
+
+**If you ignore it.** `topology.get_neighbors` returns nothing for that area and `topology.get_path` can never
+reach it, so anything that reasons about "the room next door" skips it silently.
+
+### Indoor areas have no floor
+
+**What it means.** An area annotated `indoor` has no floor assigned in Home Assistant, while the rest of your
+home does use floors. Topology derives whether a connection is horizontal or vertical purely from the two
+areas' floor levels, so a floorless area makes every connection to it `unknown`.
+
+**What to do.** Assign the floor in Home Assistant under **Settings** → **Areas, labels & zones**. Topology
+consumes the floor registry, it does not maintain its own.
+
+**If you ignore it.** Connections to that area stay `unknown` rather than horizontal or vertical, the distance
+between rooms cannot be weighted, and the area is placed in the map's "no floor" band at the bottom.
+
+**Not flagged:** a single-storey home that models no floors at all. The check only fires once some area has a
+floor, because that is what proves you use them.
+
+### Contradictory wall bearings
+
+**What it means.** The same cardinal side of an area is used both for an interior connection to another room
+_and_ for a `beyond` class. A wall cannot both border your kitchen and face open air.
+
+**What to do.** Open that area and decide which side is really which. A common cause is copying bearings
+between mirrored rooms. Remember that a connection's side is recorded from one area's point of view and the
+other area meets the same wall from the opposite bearing — the panel does that mirroring for you.
+
+**If you ignore it.** The `beyond` class stays stored but the wall also carries a room behind it, so
+`connections_facing_outdoor` may report an opening as facing outside when it opens into a corridor.
+
+### Exterior opening on a non-outdoor side
+
+**What it means.** An opening sits where it physically cannot: on a side whose `beyond` is `earth` (a buried
+wall admits no opening at all), or a glazed opening on a `neighbor` party wall (a party wall may carry a door
+to shared space, but not a window).
+
+**What to do.** Either correct that side's `beyond` class or move the opening to the side it is really on.
+
+**If you ignore it.** The opening still counts towards the perimeter, so an implausible one inflates the set
+your arming automation waits on.
+
+### An edge spans more than one storey
+
+**What it means.** A connection joins two areas whose effective floor levels are more than one apart — a
+connection from the ground floor straight to the attic.
+
+**What to do.** Check both areas' floor assignments first; a wrong floor is the usual cause. If the model is
+right, leave it: a void, an atrium or a maisonette opening legitimately spans storeys, and Topology deliberately
+still lets you create the connection.
+
+**If you ignore it.** Nothing changes in behaviour. The distance between the two areas counts every storey the
+route crosses, so a genuinely spanning connection makes the two areas read as further apart — which is usually
+what you want.
+
+### A vertical edge has no vertical passage
+
+**What it means.** A connection joins two areas on different storeys, at least one of its kinds can be crossed,
+and none of them climbs — no stairs, ramp, lift, ladder or hatch. Something claims to be a route between floors
+that nobody can actually take.
+
+**What to do.** Change the kind to the one that is really there. If the two areas are simply stacked on top of
+each other with nothing joining them, pick **Floor / ceiling slab** (`ceiling`): it records the adjacency
+without claiming a route, and this card never fires on it.
+
+**If you ignore it.** Path queries will happily route people through a doorway that does not exist, so
+"how far is the nursery from the front door" can come back with a route nobody can walk.
+
+**Not flagged:** a connection nobody can pass through at all. `shared_wall` and `ceiling` make no claim about
+crossing, so there is nothing missing from them.
+
+### Topology has orphaned entries
+
+**What it means.** Annotations, connections, or floor overrides still reference areas or floors you deleted in
+Home Assistant. Topology keeps them for a 72-hour undo window in case the deletion was a mistake.
+
+**What to do.** Three options, all fine. Submit the card to purge them now. Or restore the area in Home
+Assistant, which re-adopts its annotation — the panel's orphans view also offers to restore an orphaned
+connection once both its areas are back. Or do nothing: the daily cleanup purges them once the window elapses.
+
+**If you ignore it.** The entries stay out of every derivation while orphaned, so they affect nothing; they are
+simply deleted after 72 hours.
+
+### Topology store has unrecognized values
+
+**What it means.** The stored model contains values this version of Topology does not understand — almost
+always because you downgraded after using a newer version that knew more values.
+
+**What to do.** Upgrade the integration again.
+
+**If you ignore it.** The unrecognised values are shown as unknown but **preserved untouched**, never rewritten
+or dropped, so nothing is lost by upgrading later. In the meantime the affected field behaves as if it were
+unset.
+
+### Topology store is from a newer version
+
+**What it means.** The store's schema version is newer than this installation supports. Topology refuses to
+load rather than risk rewriting data it cannot interpret.
+
+**What to do.** Upgrade the integration again, or restore a backup taken before the upgrade.
+
+**If you ignore it.** Topology does not start at all: no entities, no panel, no service actions. This is the one
+card that describes a hard failure rather than a suggestion.
 
 ## How the data updates
 

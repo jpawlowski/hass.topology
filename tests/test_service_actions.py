@@ -19,6 +19,12 @@ from custom_components.topology.const import (
     EVENT_TOPOLOGY_UPDATED,
     SERVICE_ANNOTATE_AREA,
     SERVICE_DECLARE_CONNECTION,
+    SERVICE_GET_CONNECTIONS_FACING_OUTDOOR,
+    SERVICE_GET_HEALTH,
+    SERVICE_GET_MODEL,
+    SERVICE_GET_NEIGHBORS,
+    SERVICE_GET_PATH,
+    SERVICE_GET_PERIMETER,
     SERVICE_IMPORT_FROM_CORE,
     SERVICE_PROJECT_LABELS,
     SERVICE_SET_BEYOND,
@@ -33,7 +39,7 @@ if TYPE_CHECKING:
 
     from homeassistant.core import Context, HomeAssistant
 
-_ALL_SERVICES = (
+_WRITE_SERVICES = (
     SERVICE_ANNOTATE_AREA,
     SERVICE_DECLARE_CONNECTION,
     SERVICE_SET_BEYOND,
@@ -42,6 +48,19 @@ _ALL_SERVICES = (
     SERVICE_PROJECT_LABELS,
     SERVICE_IMPORT_FROM_CORE,
 )
+
+# The six response-only read actions (see tests/test_read_services.py). Listed
+# here so the services.yaml/registration parity check covers the whole domain.
+_READ_SERVICES = (
+    SERVICE_GET_NEIGHBORS,
+    SERVICE_GET_PATH,
+    SERVICE_GET_PERIMETER,
+    SERVICE_GET_CONNECTIONS_FACING_OUTDOOR,
+    SERVICE_GET_HEALTH,
+    SERVICE_GET_MODEL,
+)
+
+_ALL_SERVICES = _WRITE_SERVICES + _READ_SERVICES
 
 _TOPOLOGY_DIR = Path(__file__).parent.parent / "custom_components" / "topology"
 _TRANSLATIONS_PATH = _TOPOLOGY_DIR / "translations" / "en.json"
@@ -76,7 +95,7 @@ async def _call(
 
 
 async def test_services_registered(hass: HomeAssistant) -> None:
-    """All seven services exist after async_setup, before any entry (action-setup)."""
+    """All thirteen services exist after async_setup, before any entry (action-setup)."""
     assert await async_setup_component(hass, DOMAIN, {})
     await hass.async_block_till_done()
     for service in _ALL_SERVICES:
@@ -369,7 +388,8 @@ def test_service_translations_present() -> None:
         assert service in services_block, service
         assert services_block[service]["name"]
         assert services_block[service]["description"]
-        for field in definition.get("fields") or {}:
+        # A service with no fields is a bare YAML key, so it parses as ``None``.
+        for field in (definition or {}).get("fields") or {}:
             assert field in services_block[service]["fields"], (service, field)
             assert services_block[service]["fields"][field]["name"]
 
@@ -395,7 +415,7 @@ def test_selector_translation_keys() -> None:
     selector_block = translations["selector"]
     seen = False
     for definition in services_yaml.values():
-        for field in (definition.get("fields") or {}).values():
+        for field in ((definition or {}).get("fields") or {}).values():
             select = (field.get("selector") or {}).get("select")
             if not select or "translation_key" not in select:
                 continue

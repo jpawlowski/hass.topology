@@ -36,6 +36,7 @@ from .const import (
     DOMAIN,
     ISSUE_CONTRADICTORY_BEARINGS,
     ISSUE_DEEP_LINKS,
+    ISSUE_DOC_ANCHORS,
     ISSUE_EDGES_SPANNING_FLOORS,
     ISSUE_EXTERIOR_NON_OUTDOOR,
     ISSUE_INDOOR_WITHOUT_FLOOR,
@@ -71,10 +72,17 @@ def _toggle(
     publishes never stack cards; ``async_delete_issue`` is a no-op when the
     issue is absent, so the delete branch is always safe to call.
 
-    ``learn_more_url`` defaults to the shared repo URL (Phase 5 behavior); the
-    reconciler overrides it per issue with a panel deep-link (Phase 7 §3, D9).
-    It is a free string field, not part of the frozen issue identity, so this
-    changes no id, severity, placeholder, or fixability.
+    ``learn_more_url`` defaults to the shared repo URL; the reconciler overrides
+    it per issue with a panel deep-link (Phase 7 §3, D9). It is a free string
+    field, not part of the frozen issue identity, so this changes no id,
+    severity, placeholder, or fixability.
+
+    The ``docs`` placeholder is injected here rather than at each call site: the
+    card's one link field is spent on remediation, so the documentation link
+    lives in the description text (Phase 8 §4.2, D11), and every description in
+    ``translations/en.json`` ends with a markdown link to ``{docs}``. Injecting
+    it centrally means a new issue id cannot ship with an unresolved placeholder
+    in its description.
     """
     if not active:
         ir.async_delete_issue(hass, DOMAIN, issue_id)
@@ -88,7 +96,10 @@ def _toggle(
         translation_key=issue_id,
         learn_more_url=learn_more_url,
         data=data,
-        translation_placeholders=placeholders,
+        translation_placeholders={
+            **(placeholders or {}),
+            "docs": ISSUE_DOC_ANCHORS.get(issue_id, LEARN_MORE_URL),
+        },
     )
 
 
@@ -198,6 +209,10 @@ def async_reconcile_issues(
             "value": unknowns[0].value if unknowns else "",
             "count": str(len(unknowns)),
         },
+        # The panel cannot fix this one — the remedy is prose (upgrade again) —
+        # so its one link field points at the documentation rather than at the
+        # bare repository root it used to (Phase 8 §4.2, D11).
+        learn_more_url=ISSUE_DOC_ANCHORS[ISSUE_UNKNOWN_ENUM],
     )
 
 

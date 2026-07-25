@@ -52,7 +52,7 @@ def _runtime(hass: HomeAssistant) -> TopologyRuntimeData | None:
     return None
 
 
-def _require_runtime(hass: HomeAssistant) -> TopologyRuntimeData:
+def require_runtime(hass: HomeAssistant) -> TopologyRuntimeData:
     """Return the loaded runtime or raise translated ``not_loaded`` (§3)."""
     runtime = _runtime(hass)
     if runtime is None:
@@ -84,7 +84,7 @@ def _build_preset_connection(
 
 async def async_annotate_area(call: ServiceCall) -> None:
     """``topology.annotate_area`` — set area type/environment/trust (§2.1)."""
-    runtime = _require_runtime(call.hass)
+    runtime = require_runtime(call.hass)
     area_id = call.data[FIELD_AREA_ID]
     require_area(call.hass, area_id)
     updates = {key: call.data[key] for key in (FIELD_TYPE, FIELD_ENVIRONMENT, FIELD_TRUST) if key in call.data}
@@ -96,7 +96,7 @@ async def async_annotate_area(call: ServiceCall) -> None:
 
 async def async_declare_connection(call: ServiceCall) -> None:
     """``topology.declare_connection`` — create/replace an edge from a preset (§2.2)."""
-    runtime = _require_runtime(call.hass)
+    runtime = require_runtime(call.hass)
     area_a = call.data[FIELD_AREA_A]
     area_b = call.data[FIELD_AREA_B]
     if area_a == area_b:
@@ -125,7 +125,7 @@ async def async_declare_connection(call: ServiceCall) -> None:
 
 async def async_set_beyond(call: ServiceCall) -> None:
     """``topology.set_beyond`` — set/clear one outer-wall beyond side (§2.3)."""
-    runtime = _require_runtime(call.hass)
+    runtime = require_runtime(call.hass)
     area_id = call.data[FIELD_AREA_ID]
     require_area(call.hass, area_id)
     beyond = call.data.get(FIELD_BEYOND)  # omitted or null clears the side
@@ -135,7 +135,7 @@ async def async_set_beyond(call: ServiceCall) -> None:
 
 async def async_set_exterior(call: ServiceCall) -> None:
     """``topology.set_exterior`` — replace an area's exterior-connection list (§2.4)."""
-    runtime = _require_runtime(call.hass)
+    runtime = require_runtime(call.hass)
     area_id = call.data[FIELD_AREA_ID]
     require_area(call.hass, area_id)
     connections: list[ConnectionDict] = call.data[FIELD_CONNECTIONS]
@@ -147,7 +147,7 @@ async def async_set_exterior(call: ServiceCall) -> None:
 
 async def async_set_floor_level(call: ServiceCall) -> None:
     """``topology.set_floor_level`` — store/clear a floor-level override (§2.5)."""
-    runtime = _require_runtime(call.hass)
+    runtime = require_runtime(call.hass)
     floor_id = call.data[FIELD_FLOOR_ID]
     require_floor(call.hass, floor_id)
     level = call.data.get(FIELD_LEVEL)  # omitted or null clears the override
@@ -157,7 +157,7 @@ async def async_set_floor_level(call: ServiceCall) -> None:
 
 async def async_project_labels(call: ServiceCall) -> None:
     """``topology.project_labels`` — run the opt-in label projection (§2.6)."""
-    runtime = _require_runtime(call.hass)
+    runtime = require_runtime(call.hass)
     scope = call.data[FIELD_SCOPE]
     home = runtime.store.snapshot().home_config
     toggles = {
@@ -177,7 +177,7 @@ async def async_project_labels(call: ServiceCall) -> None:
 
 async def async_import_from_core(call: ServiceCall) -> None:
     """``topology.import_from_core`` — one-shot alias/label seed (§2.7)."""
-    runtime = _require_runtime(call.hass)
+    runtime = require_runtime(call.hass)
     source = call.data[FIELD_SOURCE]
     _snapshot, affected = await async_run_import(call.hass, runtime.store, source)
     # The stamp is itself a mutation; publish the post-stamp snapshot ALWAYS so

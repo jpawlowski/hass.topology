@@ -98,6 +98,7 @@
         "interior_door": "Interior door",
         "open_passage": "Open passage",
         "shared_wall": "Shared wall",
+        "ceiling": "Floor / ceiling slab",
         "open_stair": "Open stair",
         "enclosed_stair": "Enclosed stair",
         "lift": "Lift",
@@ -241,6 +242,60 @@
           "description": "Whether to import from area aliases or area labels."
         }
       }
+    },
+    "get_neighbors": {
+      "name": "Get neighbours",
+      "description": "Return the areas directly adjacent to one area, with the edge, its axis, its storey difference, and whether it can be walked. Returns a response; it changes nothing.",
+      "fields": {
+        "area_id": {
+          "name": "Area",
+          "description": "The area whose neighbours are returned."
+        }
+      }
+    },
+    "get_path": {
+      "name": "Get path",
+      "description": "Return the shortest route between two areas as a list of areas, with the hop count and a distance that also counts every storey the route changes. Returns a response; it changes nothing.",
+      "fields": {
+        "from_area": {
+          "name": "From area",
+          "description": "Where the route starts."
+        },
+        "to_area": {
+          "name": "To area",
+          "description": "Where the route ends."
+        },
+        "traversable_only": {
+          "name": "Walkable connections only",
+          "description": "Ignore connections nobody can pass through, such as a shared wall."
+        }
+      }
+    },
+    "get_perimeter": {
+      "name": "Get perimeter",
+      "description": "Return every connection that forms the home's perimeter, whether or not it is open and whether or not a sensor is bound to it. This is the full set the perimeter binary sensor aggregates. Returns a response; it changes nothing."
+    },
+    "get_connections_facing_outdoor": {
+      "name": "Get connections facing outdoor",
+      "description": "Return every connection that provably faces open air, with its cardinal side, whether it is glazed, its passage and barrier, and any bound sensor. Optionally filtered to certain sides or to glazed openings only. Returns a response; it changes nothing.",
+      "fields": {
+        "side": {
+          "name": "Sides",
+          "description": "Only return connections facing these cardinal sides. Leave empty for all sides."
+        },
+        "glazed_only": {
+          "name": "Glazed only",
+          "description": "Only return glazed openings — windows and glazed doors."
+        }
+      }
+    },
+    "get_health": {
+      "name": "Get health",
+      "description": "Return the consistency signal: the area counts plus every list behind the repair issues — unannotated, isolated, floorless, contradictory bearings, implausible edges, orphans, and unrecognised values. Returns a response; it changes nothing."
+    },
+    "get_model": {
+      "name": "Get model",
+      "description": "Return the whole readable model at once: home configuration, every area with its beyond sides and exterior connections, every edge with its connections, the perimeter, and the health signal. Large — prefer a narrower action when one fits. Returns a response; it changes nothing."
     }
   },
   "exceptions": {
@@ -272,15 +327,15 @@
   "issues": {
     "store_future_version": {
       "title": "Topology store is from a newer version",
-      "description": "The topology store on disk is schema version {version}, which is newer than this installation supports. Topology cannot load until you upgrade the integration again or restore a compatible backup."
+      "description": "The topology store on disk is schema version {version}, which is newer than this installation supports. Topology cannot load until you upgrade the integration again or restore a compatible backup.\n\n[Read more about this in the documentation]({docs})"
     },
     "unknown_enum_after_downgrade": {
       "title": "Topology store has unrecognized values",
-      "description": "The topology store contains at least one value this version does not recognize (for example {field} = \"{value}\"), likely from a newer release. {count} such value(s) are shown as unknown and are preserved untouched; upgrade the integration again to restore them."
+      "description": "The topology store contains at least one value this version does not recognize (for example {field} = \"{value}\"), likely from a newer release. {count} such value(s) are shown as unknown and are preserved untouched; upgrade the integration again to restore them.\n\n[Read more about this in the documentation]({docs})"
     },
     "unannotated_areas_threshold": {
       "title": "Several areas are not annotated",
-      "description": "{count} area(s) have no topology annotation, at or above your configured threshold of {threshold}. Annotate them so the topology model reflects your home. This suggestion clears once fewer than {threshold} areas remain unannotated."
+      "description": "{count} area(s) have no topology annotation, at or above your configured threshold of {threshold}. Annotate them so the topology model reflects your home. This suggestion clears once fewer than {threshold} areas remain unannotated.\n\n[Read more about this in the documentation]({docs})"
     },
     "orphaned_registry_entries": {
       "title": "Topology has orphaned entries",
@@ -288,34 +343,34 @@
         "step": {
           "confirm": {
             "title": "Purge orphaned topology entries",
-            "description": "{count} topology entries reference areas or floors that were removed from the registry. They are kept for a short undo window in case you restore the area. Select Submit to purge them now, or dismiss this to let the daily cleanup remove them after the window elapses."
+            "description": "{count} topology entries reference areas or floors that were removed from the registry. They are kept for a short undo window in case you restore the area. Select Submit to purge them now, or dismiss this to let the daily cleanup remove them after the window elapses.\n\n[Read more about this in the documentation]({docs})"
           }
         }
       }
     },
     "isolated_areas": {
       "title": "Some areas are not connected",
-      "description": "{count} area(s) have no interior connection to any other area, so they are isolated in the topology graph. Add an interior connection for each so the graph is complete. This suggestion clears once every area is connected."
+      "description": "{count} area(s) have no interior connection to any other area, so they are isolated in the topology graph. Add an interior connection for each so the graph is complete. This suggestion clears once every area is connected.\n\n[Read more about this in the documentation]({docs})"
     },
     "indoor_areas_without_floor": {
       "title": "Indoor areas have no floor",
-      "description": "{count} indoor area(s) are not assigned to a floor while the rest of your home uses floors. Assign a floor in Home Assistant so the topology model is complete. This suggestion clears once every indoor area has a floor."
+      "description": "{count} indoor area(s) are not assigned to a floor while the rest of your home uses floors. Assign a floor in Home Assistant so the topology model is complete. This suggestion clears once every indoor area has a floor.\n\n[Read more about this in the documentation]({docs})"
     },
     "contradictory_bearings": {
       "title": "Contradictory wall bearings",
-      "description": "{count} area(s) use the same cardinal side both for an interior connection and for a beyond declaration, which cannot both be true. Review the affected sides so each is used consistently. This suggestion clears once the contradiction is resolved."
+      "description": "{count} area(s) use the same cardinal side both for an interior connection and for a beyond declaration, which cannot both be true. Review the affected sides so each is used consistently. This suggestion clears once the contradiction is resolved.\n\n[Read more about this in the documentation]({docs})"
     },
     "exterior_on_non_outdoor_side": {
       "title": "Exterior opening on a non-outdoor side",
-      "description": "{count} area(s) declare an exterior opening on a side that faces earth or a glazed opening onto a neighbor, which is not physically possible. Review the affected openings so each faces a valid side. This suggestion clears once the openings are corrected."
+      "description": "{count} area(s) declare an exterior opening on a side that faces earth or a glazed opening onto a neighbor, which is not physically possible. Review the affected openings so each faces a valid side. This suggestion clears once the openings are corrected.\n\n[Read more about this in the documentation]({docs})"
     },
     "edges_spanning_multiple_floors": {
       "title": "Connections spanning more than one floor",
-      "description": "{count} connection(s) join areas more than one floor apart. That is real in a void, an atrium or a maisonette, so nothing is blocked — but it more often means an area sits on the wrong floor. Check the floor assignments of the areas involved, or leave the connection as it is. This suggestion clears once no connection spans more than one floor."
+      "description": "{count} connection(s) join areas more than one floor apart. That is real in a void, an atrium or a maisonette, so nothing is blocked — but it more often means an area sits on the wrong floor. Check the floor assignments of the areas involved, or leave the connection as it is. This suggestion clears once no connection spans more than one floor.\n\n[Read more about this in the documentation]({docs})"
     },
     "vertical_edges_without_vertical_passage": {
       "title": "Connection between floors with no way to climb",
-      "description": "{count} connection(s) join areas on different floors, but none of them offers stairs, a ramp, a lift, a ladder or a hatch — so nothing can actually get from one to the other. Usually the wrong kind was picked (an interior door where a stair belongs). A plain shared ceiling is a legitimate exception. This suggestion clears once each such connection carries a climbing kind."
+      "description": "{count} connection(s) join areas on different floors and can be crossed, but none of them offers stairs, a ramp, a lift, a ladder or a hatch — so nothing can actually get from one to the other. Usually the wrong kind was picked (an interior door where a stair belongs). A connection nobody can pass through at all is never listed here: if the two areas are simply stacked, pick the “Floor / ceiling slab” kind and this suggestion clears.\n\n[Read more about this in the documentation]({docs})"
     }
   }
 }

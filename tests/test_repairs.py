@@ -19,6 +19,7 @@ from custom_components.topology.const import (
     EVENT_TOPOLOGY_UPDATED,
     ISSUE_CONTRADICTORY_BEARINGS,
     ISSUE_DEEP_LINKS,
+    ISSUE_DOC_ANCHORS,
     ISSUE_EXTERIOR_NON_OUTDOOR,
     ISSUE_INDOOR_WITHOUT_FLOOR,
     ISSUE_ISOLATED_AREAS,
@@ -107,7 +108,13 @@ async def test_unannotated_threshold_created(
     assert issue.severity == ir.IssueSeverity.WARNING
     # Phase 7 (§3.1, D9): the reactive card now deep-links into the panel.
     assert issue.learn_more_url == ISSUE_DEEP_LINKS[ISSUE_UNANNOTATED_THRESHOLD]
-    assert issue.translation_placeholders == {"count": "3", "threshold": "3"}
+    # ``docs`` is injected centrally by ``_toggle`` (Phase 8 §4.2, D11); the
+    # card's own placeholders are untouched.
+    assert issue.translation_placeholders == {
+        "count": "3",
+        "threshold": "3",
+        "docs": ISSUE_DOC_ANCHORS[ISSUE_UNANNOTATED_THRESHOLD],
+    }
 
 
 async def test_unannotated_threshold_boundary(
@@ -242,7 +249,12 @@ async def test_unknown_enum_issue_parity(
 
     issue = _issue(hass, ISSUE_UNKNOWN_ENUM)
     assert issue is not None
-    assert issue.translation_placeholders == {"field": "environment", "value": "underwater", "count": "1"}
+    assert issue.translation_placeholders == {
+        "field": "environment",
+        "value": "underwater",
+        "count": "1",
+        "docs": ISSUE_DOC_ANCHORS[ISSUE_UNKNOWN_ENUM],
+    }
 
     # Correcting the value clears the card (re-upgrade path).
     await setup_integration.runtime_data.store.async_update_area("kueche", {"environment": "indoor"})

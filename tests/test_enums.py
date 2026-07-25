@@ -33,6 +33,9 @@ _PRESET_EXPECTATIONS = {
     ConnectionPreset.INTERIOR_DOOR: (Passage.LEVEL, Barrier.DOOR, False, True, "interior"),
     ConnectionPreset.OPEN_PASSAGE: (Passage.LEVEL, Barrier.OPEN, False, False, "interior"),
     ConnectionPreset.SHARED_WALL: (Passage.NONE, Barrier.SOLID, False, False, "interior"),
+    # The vertical sibling of SHARED_WALL — same expansion, distinct preset, so a
+    # stacked pair reads as a slab instead of as a wall between storeys.
+    ConnectionPreset.CEILING: (Passage.NONE, Barrier.SOLID, False, False, "interior"),
     ConnectionPreset.OPEN_STAIR: (Passage.STAIRS, Barrier.OPEN, False, False, "interior"),
     ConnectionPreset.ENCLOSED_STAIR: (Passage.STAIRS, Barrier.DOOR, False, True, "interior"),
     ConnectionPreset.LIFT: (Passage.ELEVATOR, Barrier.DOOR, False, True, "interior"),
@@ -72,6 +75,10 @@ def test_enum_catalog_frozen() -> None:
         "interior_door",
         "open_passage",
         "shared_wall",
+        # Additive: the slab between two stacked areas. Without it the only way
+        # to model that adjacency was "shared_wall", which reads as a modelling
+        # mistake between storeys and made the geometry advisory fire on it.
+        "ceiling",
         "open_stair",
         "enclosed_stair",
         "lift",

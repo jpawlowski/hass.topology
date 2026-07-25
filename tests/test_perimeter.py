@@ -59,6 +59,7 @@ async def test_perimeter_off_when_no_sensors(
     assert state.attributes["monitored_count"] == 0
     assert state.attributes["open_count"] == 0
     assert state.attributes["open_connections"] == []
+    assert state.attributes["monitored_connections"] == []
 
 
 async def test_perimeter_on_when_bound_sensor_on(
@@ -80,6 +81,35 @@ async def test_perimeter_on_when_bound_sensor_on(
     open_connections = state.attributes["open_connections"]
     assert [c["source_entity"] for c in open_connections] == [_DOOR]
     assert open_connections[0]["area_id"] == "flur"
+
+
+async def test_perimeter_lists_the_whole_monitored_set(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    store_payload_full: dict[str, Any],
+    load_payload: Callable[[MockConfigEntry, dict[str, Any]], None],
+) -> None:
+    """``monitored_connections`` covers the closed openings too (R5).
+
+    An arming automation needs the zones it is about to trust, not just the ones
+    currently open — that is the whole gap this attribute closes, so the closed
+    case is the one worth asserting.
+    """
+    await _load_with_sensors(hass, setup_integration, store_payload_full, load_payload)
+    state = hass.states.get(_PERIMETER)
+    assert state.state == "off"
+    monitored = state.attributes["monitored_connections"]
+    assert len(monitored) == state.attributes["monitored_count"] == 2
+    assert {c["source_entity"] for c in monitored} == {_DOOR, _WINDOW}
+    assert all({"edge_id", "area_id", "connection_index", "source_entity"} == set(c) for c in monitored)
+
+    # Opening one leaves the monitored set unchanged and the open set a subset.
+    hass.states.async_set(_DOOR, "on")
+    await hass.async_block_till_done()
+    state = hass.states.get(_PERIMETER)
+    assert state.attributes["monitored_connections"] == monitored
+    assert state.attributes["open_connections"][0] in monitored
 
 
 async def test_perimeter_off_when_all_closed(

@@ -4,26 +4,19 @@ blueprint:
     Close the covers in the areas whose glazed openings face the setting sun, and skip any area that currently
     has a perimeter opening standing open.
 
-    **Read this before using it — Topology cannot pick the areas for you.** A connection's cardinal `side`
-    (`N`/`E`/`S`/`W`) and its `glazed` flag are deliberately not projected onto labels and not exposed as an
-    entity attribute, so no template and no blueprint can reach them. They live only on the
-    `topology/connections_facing_outdoor` WebSocket command, which a blueprint cannot call. So you run that
-    query **once** and paste the result into the `Sun-side areas` input below. From the browser console, with
-    the Home Assistant UI open:
+    **Topology picks the areas for you.** Pick the facade — `W` for the evening sun, `E` for the morning — and
+    the automation asks Topology, at run time, which areas actually have a glazed opening on that side. Add a
+    window later and it is included on the next run; no list to maintain here.
 
-    ```js
-    const conn = (await window.hassConnection).conn;
-    const { connections } = await conn.sendMessagePromise({ type: "topology/connections_facing_outdoor" });
-    console.log([...new Set(connections.filter((c) => c.side === "W" && c.glazed).map((c) => c.area_id))]);
-    ```
+    **The open/closed guard.** Closing a cover over a terrace door somebody just walked through is the classic
+    failure of this automation. `binary_sensor.topology_perimeter_open` knows which areas have an opening
+    standing open — including openings you never listed anywhere, because the perimeter is derived from the
+    trust delta rather than hand-maintained.
 
-    Use `"E"` and a sunrise trigger for the morning side. Re-run the query after you add or move a window.
-
-    **What Topology does contribute at runtime:** the open/closed guard. Closing a cover over a terrace door
-    somebody just walked through is the classic failure of this automation, and
-    `binary_sensor.topology_perimeter_open` knows which areas have an opening standing open — including
-    openings you never listed here, because the perimeter is derived from the trust delta rather than
-    hand-maintained.
+    **Prerequisite:** the areas need their `beyond` sides annotated (which wall faces open air) and their
+    windows recorded as exterior connections with a cardinal side. The panel's exterior editor does both. Areas
+    that face the sun but are not annotated simply do not appear — run `topology.get_health` if the result
+    looks short.
   domain: automation
   author: jpawlowski
   source_url: >-
@@ -35,14 +28,32 @@ blueprint:
       name: Which side of the house
       icon: mdi:weather-sunset-down
       input:
-        sun_side_areas:
-          name: Sun-side areas
+        facade_sides:
+          name: Facing sides
           description: >-
-            The areas whose glazed openings face the setting sun, obtained from the
-            `topology/connections_facing_outdoor` query above. Every cover in these areas is closed.
+            The cardinal sides the sun hits at the time this runs. `W` for a sunset trigger, `E` if you switch
+            the trigger to sunrise. Topology resolves these to areas on every run.
+          default: [W]
           selector:
-            area:
+            select:
               multiple: true
+              options:
+                - label: North
+                  value: "N"
+                - label: East
+                  value: "E"
+                - label: South
+                  value: "S"
+                - label: West
+                  value: "W"
+        glazed_only:
+          name: Glazed openings only
+          description: >-
+            Leave enabled so a solid outside door on that facade does not pull its whole area in. Disable if you
+            also shade non-glazed openings.
+          default: true
+          selector:
+            boolean:
         excluded_covers:
           name: Covers to leave alone
           description: >-
@@ -102,6 +113,12 @@ triggers:
     offset: !input sunset_offset
 
 actions:
+  - alias: "Ask Topology which areas face the sun right now"
+    action: topology.get_connections_facing_outdoor
+    data:
+      side: !input facade_sides
+      glazed_only: !input glazed_only
+    response_variable: topology_facing
   - alias: "Find the areas Topology reports as open right now"
     variables:
       topology_open_areas: >-
@@ -114,7 +131,7 @@ actions:
   - alias: "Collect the covers to move"
     variables:
       topology_covers: >-
-        {{ sun_side_areas
+        {{ topology_facing.area_ids
            | reject('in', topology_open_areas)
            | map('area_entities') | sum(start=[])
            | select('match', 'cover\\.')
@@ -131,8 +148,8 @@ actions:
             data:
               name: Topology
               message: >-
-                No sun-side covers to close — {{ sun_side_areas | count }} area(s) configured,
-                {{ topology_open_areas | count }} skipped for an open perimeter opening.
+                No sun-side covers to close — {{ topology_facing.area_ids | count }} area(s) face the chosen
+                side, {{ topology_open_areas | count }} skipped for an open perimeter opening.
       - alias: "Fully close"
         conditions:
           - condition: template
