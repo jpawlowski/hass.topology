@@ -10,6 +10,10 @@
 #
 # Local development and the DevContainer itself are untouched — this only runs
 # when Claude Code reports it's operating a remote/cloud sandbox.
+#
+# Safe to invoke directly too (e.g. `CLAUDE_CODE_REMOTE=true bash .claude/hooks/session-start.sh`
+# as a cloud environment's Setup script), which lets that already-installed environment's
+# filesystem cache and this hook's own fast-path marker (see below) agree with each other.
 
 set -euo pipefail
 
@@ -17,13 +21,49 @@ if [[ ${CLAUDE_CODE_REMOTE:-} != "true" ]]; then
     exit 0
 fi
 
-cd "$CLAUDE_PROJECT_DIR"
+# CLAUDE_PROJECT_DIR is set when Claude Code invokes this as a SessionStart hook.
+# It's unset when a cloud environment's Setup script invokes this file directly
+# (before Claude Code has launched) — fall back to the current directory, which
+# is already the repo root in that context.
+cd "${CLAUDE_PROJECT_DIR:-.}"
 
 # Needed immediately in this shell (pipx-installed uv lands here) and for every
 # later Bash tool call in this session.
 export PATH="$HOME/.local/bin:$PATH"
 if [[ -n ${CLAUDE_ENV_FILE:-} ]]; then
     echo 'export PATH="$HOME/.local/bin:$PATH"' >>"$CLAUDE_ENV_FILE"
+fi
+
+# Fast path: skip straight past apt/uv/bootstrap if nothing that would change their
+# outcome has changed since the last successful run in this filesystem. Needed
+# because SessionStart hooks re-run on every resume/clear/compact — not just fresh
+# sessions — unlike a cloud environment's Setup script, which is cached. Without
+# this, resuming a session redid the full multi-minute apt+uv+Python 3.14+Home
+# Assistant install every single time even though nothing had changed.
+MARKER=".local/.claude-cloud-setup.sha256"
+FINGERPRINT_INPUTS=(
+    pyproject.toml
+    hacs.json
+    .devcontainer/.env
+    .devcontainer/.env.local
+    requirements.txt
+    requirements_dev.txt
+    requirements_test.txt
+    requirements.local.txt
+    package.json
+    package-lock.json
+    .claude/hooks/session-start.sh
+)
+# Several of these are optional/gitignored (.env.local, requirements.local.txt,
+# package-lock.json) — `cat` exits non-zero for the ones that don't exist even
+# though it still prints the ones that do, and that non-zero exit would otherwise
+# kill the script here under `set -e` + `pipefail`.
+CURRENT_FINGERPRINT=$(cat "${FINGERPRINT_INPUTS[@]}" 2>/dev/null | sha256sum | cut -d' ' -f1) || true
+
+if [[ -f $MARKER && -x .local/ha-venv/bin/python3 && $(cat "$MARKER") == "$CURRENT_FINGERPRINT" ]] &&
+    .local/ha-venv/bin/python3 -c "import homeassistant" >/dev/null 2>&1; then
+    echo "==> Cloud sandbox already set up and unchanged since last run — skipping"
+    exit 0
 fi
 
 echo "==> Installing apt packages (parity with .devcontainer/devcontainer.json's apt-packages feature)"
@@ -89,3 +129,5 @@ fi
 
 echo "==> Running script/setup/setup (same entry point as the DevContainer's postCreateCommand)"
 script/setup/setup
+
+echo "$CURRENT_FINGERPRINT" >"$MARKER"
