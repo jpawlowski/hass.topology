@@ -123,16 +123,16 @@ async def test_ws_path_multi_hop(
     load_payload(setup_integration, store_payload_full)
     garten = area_registry.async_create("garten")
     store = setup_integration.runtime_data.store
-    await store.async_upsert_edge("kueche", garten.id, [{"passage": "none", "barrier": "solid"}])
-    setup_integration.runtime_data.coordinator.async_publish(store.snapshot(), "edge", ["garten::kueche"])
+    snapshot, edge_id = await store.async_upsert_edge("kueche", garten.id, [{"passage": "none", "barrier": "solid"}])
+    setup_integration.runtime_data.coordinator.async_publish(snapshot, "edge", [edge_id])
     await hass.async_block_till_done()
     client = await hass_ws_client(hass)
 
     # From wohnzimmer, the BFS re-encounters the already-visited third triangle
     # member (flur/kueche see each other before either is expanded) before it
     # reaches garten — walking the "already visited" skip as well as the enqueue.
-    response = await _query(client, {"type": "topology/path", "from": "wohnzimmer", "to": "garten"})
-    assert response["result"]["path"] == ["wohnzimmer", "kueche", "garten"]
+    response = await _query(client, {"type": "topology/path", "from": "wohnzimmer", "to": garten.id})
+    assert response["result"]["path"] == ["wohnzimmer", "kueche", garten.id]
     assert response["result"]["hops"] == 2
 
 
