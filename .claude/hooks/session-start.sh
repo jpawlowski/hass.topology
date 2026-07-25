@@ -101,6 +101,21 @@ else
     echo "==> apt-get not found — skipping apt package installation" >&2
 fi
 
+echo "==> Ensuring Node.js/npm is available"
+# Claude Code cloud sandboxes ship Node.js pre-installed, so this is normally a no-op.
+# Kept as a best-effort fallback in case that ever isn't true: script/setup/bootstrap
+# silently skips `npm ci` without npm, which would otherwise leave script/check's
+# type-check (pyright, linked from node_modules/.bin) and markdown-check (prettier,
+# markdownlint-cli2) broken with no clear signal why.
+if ! command -v npm >/dev/null 2>&1; then
+    echo "==> npm not found — attempting apt fallback (expect an older Node than the devcontainer's LTS pin)" >&2
+    if command -v apt-get >/dev/null 2>&1; then
+        apt_get install -y -qq nodejs npm >/dev/null 2>&1 || echo "==> Failed to install nodejs/npm via apt — script/check's type-check and markdown-check will be unavailable" >&2
+    else
+        echo "==> apt-get unavailable — script/check's type-check and markdown-check will be unavailable" >&2
+    fi
+fi
+
 echo "==> Installing latest uv"
 # Force-(re)install rather than "only if missing": a stale pre-baked uv can carry a
 # stale bundled index of downloadable Python builds. Seen in practice: an old uv only
