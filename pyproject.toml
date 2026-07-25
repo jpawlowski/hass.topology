@@ -298,6 +298,10 @@ split-on-trailing-comma = false
     "T20",    # print() allowed in scripts
     "INP001", # Implicit namespace package (scripts are not a package)
 ]
+"assets/*" = [
+    "T20",    # Standalone generators report what they wrote, on stdout
+    "INP001", # Implicit namespace package (asset tooling is not a package)
+]
 "tests/*" = [
     "S101",    # assert is fine in tests
     "PLR2004", # Magic values are fine in tests
