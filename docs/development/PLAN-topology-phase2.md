@@ -940,6 +940,28 @@ and what the §10 freeze point calls "change-notification event names".
 
 ## 5. Config-flow step definition
 
+> **⚠ Superseded 2026-07-25 by
+> [`PLAN-topology-phase2-followup-configflow.md`](PLAN-topology-phase2-followup-configflow.md).**
+> The flow is now **confirm-only**: it collects no fields and creates the entry
+> with `data == {}`. The frozen text below stays readable as the record of what
+> was built in Phase 2; it is annotated, not rewritten. Statement-by-statement:
+>
+> | Statement below                                                                                             | Superseded by                                                                                                                  |
+> | ----------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ |
+> | §5 preamble "`entry.data` holds exactly the flow fields below … entry data is the flow's state"             | follow-up §2.4 — the store is the only config source; `entry.data` is `{}` and is never read back as configuration             |
+> | §5 `VERSION = 1`, `MINOR_VERSION = 1`                                                                       | follow-up §3.1 — `CONFIG_ENTRY_VERSION = 1` / `CONFIG_ENTRY_MINOR_VERSION = 2`, decoupled from `STORAGE_VERSION`               |
+> | §5.1 the seven-field `user` schema                                                                          | follow-up §2.1 — confirm-only, `vol.Schema({})`                                                                                |
+> | §5.2 reconfigure = "same schema as `user` minus the import flags"                                           | follow-up §2.2 — confirm-only: re-validate + reload, writes nothing                                                            |
+> | §5.3 the `config.step.*.data*` / `selector.occupancy_extent` keys                                           | follow-up §5 — those keys are removed from `en.json`                                                                           |
+> | §5 "Import flags … one-shot actions executed during the first setup after the flow"                         | follow-up §4 — a panel first-run card calling `topology.import_from_core`; the `imports_done_at` stamp semantics are unchanged |
+> | §7 rows `test_flow_user_full_input`, `test_flow_threshold_default_and_custom`, `test_reconfigure_prefilled` | follow-up §6 — replaced by the confirm-only + migration rows                                                                   |
+>
+> **Not superseded and still binding:** the store schema (§2.2), the enum catalog
+> (§3), the whole WS contract v1 (§4) including §4.9, the migration hook contract
+> (§2.3), and the **test-before-configure / test-before-setup check sets**
+> (§5.1/§5.3) — the confirm-only step still runs all three checks on submit,
+> which is why the flow keeps a form at all.
+
 `config_flow_handler/config_flow.py`; `ConfigFlow` with `VERSION = 1`,
 `MINOR_VERSION = 1` (inherited attrs, Appendix A.4). Manifest has
 `single_config_entry: true`, so Core aborts a second flow with

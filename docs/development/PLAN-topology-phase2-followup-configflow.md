@@ -1,26 +1,57 @@
 # Topology — Phase-2 Follow-up: Config-Flow Slimming — Implementation Plan
 
 **Status:** Implementation plan (frozen artifact for the Phase-2 re-freeze
-carved out of `PLAN-topology-phase7.md` D14) · Last updated 2026-07-24 ·
+carved out of `PLAN-topology-phase7.md` D14) · Last updated 2026-07-25 ·
 **Decisions D1–D14 ratified by the maintainer 2026-07-24 — cleared for
 implementation.** Every "Recommended option" in §9 is now the binding decision;
 this document is the frozen contract the implementation PR is written against.
-Phase 7 ratified the _direction_ ("slim the flow, move settings + the import
-opt-in to the panel") and explicitly sequenced the field removal here, as a
-separate change with a deprecation/migration window; ratification of §9 closes
-that sequencing. Five carve-outs survive ratification as **pre-implementation
-tasks, not open choices** — the **open verification items** listed under §9 are
-facts this environment could not establish (frontend form submission, hassfest on
-a field-less step, reconfigure reachability, `MockConfigEntry` version defaults,
-`hass.callService` availability). Each has a stated fallback that changes only
-the mechanism, never a ratified decision.
+
+> **Amendment 2026-07-25 — the deprecation window is collapsed; S1 and S2 ship
+> together.** The maintainer decided to take the alternative recorded under
+> D8/D9/D10/D12 rather than the two-stage window: ADR "Release Strategy"
+> expressly permits it pre-1.0.0 ("no public deprecation window; a coordinated
+> update of both repositories suffices"), and it removes ~20 lines of purely
+> transitional code. Concretely, and superseding the S1/S2 split wherever the
+> text below still describes one:
+>
+> - **One migration, 1.1 → 1.2**, which transfers **and** cleans up. There is no
+>   `minor_version = 3`.
+> - **`entry.data` is `{}` after the migration** — the legacy keys are removed in
+>   the same `async_update_entry` call that bumps the version (§3.2 step 6,
+>   S2 variant). The clearing still happens **only** after a successful
+>   `async_save_now()`; a store error leaves the entry unbumped _and_ unemptied.
+> - **`_sync_home_config_to_entry` is deleted**, together with its call site and
+>   its `CONF_*` imports — not kept write-only.
+> - **`_run_setup_imports` is deleted.** Never-executed import opt-ins are not
+>   lost: the panel first-run card appears exactly when the `imports_done_at`
+>   stamp is `null`, which is the same condition the function tested.
+> - **Accepted risk, documented in the implementation PR:** after a rollback to
+>   the pre-slim version the old reconfigure form shows defaults instead of the
+>   real values, and submitting it there would write those defaults into the
+>   store. The store's contents are never lost by the migration itself.
+>
+> Everything else in this document — D1–D7, D11, D13, D14, the confirm-only flow
+> shape, the migration order of operations, the panel card, and the boundaries in
+> §7 — is unchanged and still binding. §3.5 and the D8/D9/D10/D12 rows below carry
+> the amendment inline; §1, §2.4 and §4.4 should be read with their S2 column as
+> the shipped state and their S1 column as never-shipped.
+> Phase 7 ratified the _direction_ ("slim the flow, move settings + the import
+> opt-in to the panel") and explicitly sequenced the field removal here, as a
+> separate change with a deprecation/migration window; ratification of §9 closes
+> that sequencing. Five carve-outs survive ratification as **pre-implementation
+> tasks, not open choices** — the **open verification items** listed under §9 are
+> facts this environment could not establish (frontend form submission, hassfest on
+> a field-less step, reconfigure reachability, `MockConfigEntry` version defaults,
+> `hass.callService` availability). Each has a stated fallback that changes only
+> the mechanism, never a ratified decision.
 
 **Scope:** the second half of Phase-7 D14 — **slimming the Phase-2 config flow
 to a confirm-only step**, **removing the four duplicated settings fields**
 (`occupancy_extent`, the three projection toggles, `unannotated_repair_threshold`),
 **moving the one-shot import opt-in (`import_aliases` / `import_labels`) out of
 the flow into a panel first-run action**, and **migrating existing installations
-`entry.data` → store without data loss**, behind a two-stage deprecation window.
+`entry.data` → store without data loss**. (Amended 2026-07-25: the two-stage
+deprecation window this originally sat behind is collapsed into one change, §3.5.)
 Phase 7 already shipped the Phase-7-local half (`config_panel_domain=DOMAIN`, so
 the integration tile's "Configure" opens the panel) and the panel itself
 (`update_home_config` editor, `imports_done_at` visible in the WS `home_config`
@@ -61,10 +92,10 @@ store on the first load after the upgrade, loses nothing, and keeps working if
 the migration is interrupted; a panel edit through `update_home_config`
 **survives a reload** (the regression this change exists to remove); the
 one-shot import opt-in is reachable from the panel's first-run card and still
-stamps `imports_done_at` exactly once; the legacy `entry.data` keys stay in
-place for one deprecation stage and are deleted by a second, later migration;
-`script/check`, `script/hassfest`, `script/test` and `script/markdown` stay
-green. **No** store-schema field, WS command, enum, entity, `health` field,
+stamps `imports_done_at` exactly once; the legacy `entry.data` keys are deleted
+by the same migration that transferred them, leaving `entry.data == {}`
+(amended 2026-07-25, §3.5); `script/check`, `script/hassfest`, `script/test`,
+`script/frontend-check` and `script/markdown` stay green. **No** store-schema field, WS command, enum, entity, `health` field,
 service, or `quality_scale` / manifest `version` / tag change — the only
 version bump is the **config-entry `MINOR_VERSION`** (§3.1), which is a
 migration requirement, not a release act.
@@ -75,24 +106,25 @@ migration requirement, not a release act.
 
 Basis: the tree on `main` after the Phase-7 merge (`6eb5a05`). "add" = new
 file/content, "extend" = add to or edit an existing file, "keep" = untouched.
-**S1** = stage 1 (this follow-up), **S2** = stage 2 (the cleanup migration that
-lands after the deprecation window, §3.5). No store schema, WS command, WS
-response field, `health` field, entity, or service is added or changed.
+**Amended 2026-07-25:** the S1/S2 split below is collapsed — everything marked
+**S2** ships in this same change and nothing marked **S1-only** was ever written
+(§3.5). No store schema, WS command, WS response field, `health` field, entity,
+or service is added or changed.
 
 | Path                                                                                                                         | Action     | What changes                                                                                                                                                                                                                                                                                                                |
 | ---------------------------------------------------------------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `custom_components/topology/const.py`                                                                                        | **extend** | Add `CONFIG_ENTRY_VERSION = 1` and `CONFIG_ENTRY_MINOR_VERSION = 2` (S2: `3`) and `LEGACY_CONF_KEYS` (the five/seven Phase-2 flow keys). **Decouples the config-entry version from `STORAGE_VERSION`** (§3.1, D5). The `CONF_*` constants stay — the migration still reads them (S1) and S2 deletes them with the keys.     |
+| `custom_components/topology/const.py`                                                                                        | **extend** | Add `CONFIG_ENTRY_VERSION = 1`, `CONFIG_ENTRY_MINOR_VERSION = 2` and `LEGACY_CONF_KEYS` (the seven Phase-2 flow keys). **Decouples the config-entry version from `STORAGE_VERSION`** (§3.1, D5). The `CONF_*` constants stay — the migration reads them to transfer the values and `LEGACY_CONF_KEYS` to strip them.        |
 | `custom_components/topology/config_flow_handler/config_flow.py`                                                              | **extend** | `VERSION`/`MINOR_VERSION` from the new constants; `async_step_user` becomes confirm-only and creates the entry with `data={}`; `async_step_reconfigure` becomes confirm-only (re-runs the checks, reloads, aborts `reconfigure_successful`); `_normalize()` deleted. The three checks in `_async_run_checks` are unchanged. |
 | `custom_components/topology/config_flow_handler/schemas/config.py`                                                           | **extend** | `get_user_schema` / `get_reconfigure_schema` collapse into one `get_confirm_schema() -> vol.Schema` returning `vol.Schema({})`; the selectors, defaults helpers, and the `CONF_*` imports go away. Module is kept (AGENTS.md package layout) rather than deleted.                                                           |
-| `custom_components/topology/__init__.py`                                                                                     | **extend** | **Add `async_migrate_entry`** (§3.2). **Remove** the unconditional `store.async_apply_home_config(...)` call from `async_setup_entry` (§2.5) — the store is no longer overwritten from `entry.data` on every load. `_run_setup_imports` **stays through S1** (guarded by the stamp) and is **removed in S2** (§4.4, D12).   |
-| `custom_components/topology/websocket_api.py`                                                                                | **extend** | S1: `_sync_home_config_to_entry` **stays, write-only** (downgrade insurance, §2.6/D10) with its comment rewritten — it no longer prevents a reload from clobbering, because nothing reads `entry.data` any more. S2: the helper and its `CONF_*` imports are deleted. `ws_update_home_config` itself is unchanged.          |
+| `custom_components/topology/__init__.py`                                                                                     | **extend** | **Add `async_migrate_entry`** (§3.2). **Remove** the unconditional `store.async_apply_home_config(...)` call from `async_setup_entry` (§2.5) — the store is no longer overwritten from `entry.data` on every load. **Remove `_run_setup_imports`** (§4.4, D12 as amended): the panel card covers the pending-opt-in case.   |
+| `custom_components/topology/websocket_api.py`                                                                                | **extend** | `_sync_home_config_to_entry`, its call site, and its `CONF_*` imports are **deleted** (§2.6/D10 as amended): nothing reads `entry.data` any more, so the mirror has no purpose left. `ws_update_home_config` itself is unchanged.                                                                                           |
 | `custom_components/topology/store.py`                                                                                        | **keep**   | `async_apply_home_config` keeps its exact signature; only its **caller** moves (setup → migration). `async_update_home_config` / `async_mark_import_done` untouched. No schema, no new field — the store schema's `additionalProperties: false` forbids a "migrated" marker, which is why the config entry carries it.      |
 | `custom_components/topology/translations/en.json`                                                                            | **extend** | Remove the dead `config.step.{user,reconfigure}.data` + `data_description` blocks and the now-unused `selector.occupancy_extent` block; reword `config.step.user.description` and `config.step.reconfigure.description` to point at the panel. Errors/aborts, service, entity, and issue strings unchanged (§5, D13).       |
 | `frontend/src/editors/first-run.ts`                                                                                          | **add**    | The panel first-run card: shows a per-source import opt-in while `home_config.imports_done_at.<source> === null`, calls the existing `topology.import_from_core` service, client-local dismissal. Panel-only module — outside the D15 card-reuse boundary (§4, D4).                                                         |
 | `frontend/src/topology-panel.ts`, `frontend/src/ha.ts`                                                                       | **extend** | Wire the first-run card into the map view; add `callService?` to the structural `HomeAssistant` type. `api/ws-client.ts` is **not** touched — it stays frozen to the topology WS contract (D15 boundary, §4.2).                                                                                                             |
 | `frontend/src/i18n/en.ts`                                                                                                    | **extend** | First-run card strings (frontend-side i18n per Phase-7 D11 — no `en.json` key).                                                                                                                                                                                                                                             |
 | `custom_components/topology/panel/*`                                                                                         | **extend** | Rebuilt bundle + `build.json` hash (`script/frontend`) — mechanical output of the frontend change, the CI freshness guard requires it.                                                                                                                                                                                      |
-| `tests/conftest.py`                                                                                                          | **extend** | `entry_data` becomes `{}`; `mock_config_entry` gains `minor_version=CONFIG_ENTRY_MINOR_VERSION`; **add** `legacy_entry_data` (the Phase-2 field set) and `legacy_config_entry` (`version=1, minor_version=1`).                                                                                                              |
+| `tests/conftest.py`                                                                                                          | **extend** | `entry_data` becomes `{}`; `mock_config_entry` gains `version`/`minor_version=CONFIG_ENTRY_*`; **add** `legacy_entry_data` (the Phase-2 field set), `legacy_config_entry` (`version=1, minor_version=1`), and `persisted_store` (see §6).                                                                                   |
 | `tests/test_config_flow.py`                                                                                                  | **extend** | Rewrite the field-set rows for the confirm-only steps; keep the check/abort rows verbatim (§6).                                                                                                                                                                                                                             |
 | `tests/test_migration.py`                                                                                                    | **add**    | The migration matrix: transfer, no-loss, idempotency, deferred bump on store error, downgrade rejection, pending-import handling (§6).                                                                                                                                                                                      |
 | `tests/test_websocket.py`, `tests/test_imports.py`                                                                           | **extend** | Add the reload-survival regression row and the "import service works without flow flags" row (§6).                                                                                                                                                                                                                          |
@@ -184,18 +216,16 @@ change. That is precisely the duplication D14 identified.
 
 ### 2.4 `entry.data` role after the slimming
 
-| Stage                     | `entry.data` content                             | Read by                                                  | Written by                                                         |
-| ------------------------- | ------------------------------------------------ | -------------------------------------------------------- | ------------------------------------------------------------------ |
-| today (`main`)            | the seven Phase-2 flow keys                      | `async_setup_entry` (applies to store on **every** load) | flow, reconfigure, `_sync_home_config_to_entry`                    |
-| **S1** (this follow-up)   | the legacy keys, **frozen** (new installs: `{}`) | **nothing** — except `_run_setup_imports`' opt-in check  | `_sync_home_config_to_entry` only (write-only downgrade insurance) |
-| **S2** (after the window) | `{}`                                             | nothing                                                  | nothing                                                            |
+| Stage              | `entry.data` content        | Read by                                                  | Written by                                      |
+| ------------------ | --------------------------- | -------------------------------------------------------- | ----------------------------------------------- |
+| today (`main`)     | the seven Phase-2 flow keys | `async_setup_entry` (applies to store on **every** load) | flow, reconfigure, `_sync_home_config_to_entry` |
+| **this follow-up** | `{}`                        | nothing                                                  | nothing                                         |
 
-**The rule from S1 onward: the store is the single source of truth for home
-config; `entry.data` is not a cache and is never read back as configuration.**
-Calling it a "cache" is exactly the ambiguity that produced the
-overwrite-on-reload behavior; S1 downgrades it to a _frozen legacy copy that
-only exists so a downgrade to the pre-slim version still finds its fields_, and
-S2 deletes it.
+**The rule: the store is the single source of truth for home config;
+`entry.data` is not a cache and is never read back as configuration.** Calling it
+a "cache" is exactly the ambiguity that produced the overwrite-on-reload
+behavior. Amended 2026-07-25: rather than keeping a frozen legacy copy for one
+deprecation stage, the migration reads it once and deletes it (§3.5).
 
 ### 2.5 What `async_setup_entry` loses
 
@@ -225,15 +255,16 @@ Today the panel's `update_home_config` mirrors the changed fields back into
 `entry.data → store` sync does not overwrite the panel edit. **Once §2.5 removes
 that sync, the mirror has no functional purpose left.**
 
-- **S1: keep it, write-only, with the comment rewritten** (D10). Its only
-  remaining value is that a user who downgrades to the pre-slim version during
-  the deprecation window finds their _current_ values in `entry.data` rather than
-  stale ones. Cost: one `async_update_entry` write per panel edit (a
-  `.storage/core.config_entries` rewrite; the same cost as today).
-- **S2: delete the helper**, its call site, and its `CONF_*` imports.
-- Either way `ws_update_home_config`'s payload, response, error codes, label
-  reconciliation, and `subscribe_updates` echo are **unchanged** — the frozen
-  §4.9 contract is not touched.
+- **Amended 2026-07-25 (D10): delete the helper**, its call site, and its
+  `CONF_*` imports, in this change. The only value keeping it write-only would
+  have had is that a user who downgrades to the pre-slim version finds their
+  _current_ values in `entry.data` rather than stale ones — and with the
+  deprecation window gone (§3.5) there is no such window to serve. Its cost was
+  real: one `async_update_entry` write (a `.storage/core.config_entries`
+  rewrite) per panel edit, perpetuating the duplication this change removes.
+- `ws_update_home_config`'s payload, response, error codes, label reconciliation,
+  and `subscribe_updates` echo are **unchanged** — the frozen §4.9 contract is
+  not touched.
 
 ### 2.7 Frozen Phase-2 statements this follow-up supersedes
 
@@ -381,32 +412,36 @@ the older code silently reconfigures the store from an empty `entry.data`.
 Recorded counter-argument: strictness costs an unrecoverable `MIGRATION_ERROR`
 where a warning would have sufficed during S1.
 
-### 3.5 Deprecation window
+### 3.5 Deprecation window — collapsed (amended 2026-07-25)
 
-| Stage  | Ships with                                 | Flow         | `entry.data`            | `_sync_home_config_to_entry` | `_run_setup_imports`   | Entry version |
-| ------ | ------------------------------------------ | ------------ | ----------------------- | ---------------------------- | ---------------------- | ------------- |
-| today  | `main`                                     | 7 fields     | 7 keys, read every load | read-supporting              | active                 | 1.1           |
-| **S1** | this follow-up                             | confirm-only | legacy keys frozen      | write-only                   | active (stamp-guarded) | **1.2**       |
-| **S2** | a later change, ≥ one full window after S1 | confirm-only | `{}`                    | **deleted**                  | **deleted**            | **1.3**       |
+| Stage       | Ships with     | Flow         | `entry.data`            | `_sync_home_config_to_entry` | `_run_setup_imports` | Entry version |
+| ----------- | -------------- | ------------ | ----------------------- | ---------------------------- | -------------------- | ------------- |
+| today       | `main`         | 7 fields     | 7 keys, read every load | read-supporting              | active               | 1.1           |
+| **shipped** | this follow-up | confirm-only | **`{}`**                | **deleted**                  | **deleted**          | **1.2**       |
 
-**Window length (D9):** ADR "Release Strategy" is explicit that there is no
+**Policy (amends D9).** ADR "Release Strategy" is explicit that there is no
 public release yet (`manifest.json` stays `0.x`; the single public release is
 `1.0.0` at the end of the full scope) and that pre-release changes "need no
 public deprecation window; a coordinated update of both repositories suffices".
-Counting the window in _released versions_ is therefore meaningless. The
-ratified policy is the repo's actual unit of cadence:
+Counting a window in _released versions_ is therefore meaningless, and counting
+it in _phases_ — the ratified 2026-07-24 policy, "S2 no earlier than the end of
+Phase 8, no later than the 1.0.0 preparation" — buys only rollback fidelity, at
+the price of carrying two live copies of the same configuration through a whole
+phase. **The maintainer decided on 2026-07-25 to take the recorded alternative
+instead: one change, no window.** There is no S2 and no `minor_version = 3`.
 
-> **S2 lands no earlier than the completion of the next phase (Phase 8) and no
-> later than the 1.0.0 release preparation** — i.e. the legacy keys survive at
-> least one full phase of real use on the maintainer's and Residents' instances,
-> and the entry shape is clean before the first public release.
+What the window would have bought, and what is given up with it: a rollback to
+the pre-slim version during the window would have found its fields still in
+`entry.data`. After this change it does not — the old code's reconfigure form
+falls back to its defaults, and submitting it there writes those defaults into
+the store. The migration itself never loses anything: the store holds every
+value before a single key is removed. This is the accepted risk, documented in
+the implementation PR.
 
-Collapsing S1 and S2 into a single change (clear the keys immediately,
-`minor_version = 2`, delete the mirror and `_run_setup_imports` now) was the
-recorded alternative — the ADR permits it pre-1.0.0 and it would remove ~20 lines
-of transitional code. It was **weighed and not taken** (D8/D9/D10/D12, ratified
-2026-07-24): the two-stage window stands, so the implementation PR ships **S1
-only** and S2 is a later, separate change.
+Nothing about the migration's **order of operations** relaxes: the legacy keys
+are dropped in the same `async_update_entry` call that bumps the version, and
+that call still happens only after `async_save_now()` has returned. A store
+error leaves the entry at 1.1 with `entry.data` fully intact (§3.2 step 3).
 
 ### 3.6 Breaking-change policy compliance
 
@@ -477,18 +512,21 @@ card again — on any browser, because the state is server-side. Re-importing af
 a stamp stays what it is today: a deliberate service call (`topology.import_from_core`
 from Developer Tools), which is fill-empty-only and therefore safe.
 
-### 4.4 The transitional setup import (S1 only)
+### 4.4 The setup-time import is removed (amended 2026-07-25)
 
-`_run_setup_imports` in `async_setup_entry` fires an import when
-`entry.data[CONF_IMPORT_*]` is truthy **and** the stamp is `null`. After the
-slimming, no new install ever sets those keys, so the function is inert for new
-installs. For an **existing** install whose opt-in was recorded but never
-executed (the entry never completed a setup since Phase 6 shipped), keeping the
-function through S1 means the pending intent still runs exactly once, guarded by
-the stamp — no user intent is dropped by the migration. S2 deletes it, at which
-point the panel card is the only path. (D12; the alternative — running pending
-imports _inside_ the migration — is rejected because a migration should reshape
-data, not execute feature behavior, and it would have no clean error surface.)
+`_run_setup_imports` in `async_setup_entry` fired an import when
+`entry.data[CONF_IMPORT_*]` was truthy **and** the stamp was `null`. After the
+slimming no new install ever sets those keys, so the function is inert for new
+installs; the only case it still served was an **existing** install whose opt-in
+was recorded but never executed. **It is deleted in this change** (D12 as
+amended): that pending intent is not dropped, because the panel's first-run card
+appears on exactly the condition the function tested — `imports_done_at.<source>`
+is `null`. A never-executed opt-in therefore surfaces as a visible, one-click
+action instead of a silent boot-time import, which is strictly better feedback.
+
+(The other alternative — running pending imports _inside_ the migration —
+remains rejected: a migration should reshape data, not execute feature behavior,
+and it would have no clean error surface.)
 
 ---
 
@@ -532,7 +570,12 @@ exercised before. If hassfest objects, the fallback is to keep the step's
 
 Style per Phase 4/5/6/7: IDs + fixtures, no bodies. **New fixtures:**
 `legacy_entry_data` (the frozen Phase-2 seven-key mapping), `legacy_config_entry`
-(`MockConfigEntry(..., version=1, minor_version=1, data=legacy_entry_data)`).
+(`MockConfigEntry(..., version=1, minor_version=1, data=legacy_entry_data)`), and
+`persisted_store` — `TopologyStore.async_load` reads the on-disk envelope
+directly (Phase-2 §5.1) while the harness mocks `Store` writes into an in-memory
+dict, so without it nothing reaches disk and a reload is unobservable; the
+fixture restores that round-trip for the topology key (added during
+implementation, 2026-07-25).
 **Changed fixtures:** `entry_data` → `{}`; `mock_config_entry` pinned to
 `minor_version=CONFIG_ENTRY_MINOR_VERSION` so ordinary tests do not silently
 exercise the migration. Everything else (`setup_integration`, `hass_ws_client`,
@@ -555,30 +598,30 @@ exercise the migration. Everything else (`setup_integration`, `hass_ws_client`,
 
 ### Migration (`tests/test_migration.py`, new)
 
-| ID                                           | Purpose                                                                                                                                                     | Fixtures                                 |
-| -------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| `test_migrate_transfers_legacy_fields`       | A 1.1 entry with the full legacy set → after setup the store's `home_config` carries all five values; `minor_version == 2`.                                 | hass, legacy_config_entry                |
-| `test_migrate_no_data_loss_non_default`      | Non-default values (`unit_within_building`, all toggles `True`, threshold 10) survive the transfer exactly.                                                 | hass, legacy_config_entry                |
-| `test_migrate_partial_entry_data`            | An entry missing some legacy keys → only present keys are applied; store defaults survive for the rest (no blanking).                                       | hass                                     |
-| `test_migrate_keeps_legacy_keys_stage1`      | After migration `entry.data` still contains the legacy keys (S1 deprecation window, D8).                                                                    | hass, legacy_config_entry                |
-| `test_migrate_is_idempotent`                 | A second setup/reload runs no transfer and leaves store + entry unchanged (step 2 short-circuit).                                                           | hass, legacy_config_entry                |
-| `test_migrate_store_error_defers_bump`       | Store load raising a transient error during migration → migration returns `True`, `minor_version` stays 1, setup surfaces the error; a later load migrates. | hass, legacy_config_entry                |
-| `test_migrate_future_minor_rejected`         | Entry at `1.3` → `async_migrate_entry` returns `False`, entry state `MIGRATION_ERROR`.                                                                      | hass                                     |
-| `test_migrate_future_major_rejected`         | Entry at `2.1` → core rejects before the hook; state `MIGRATION_ERROR`, hook never called.                                                                  | hass                                     |
-| `test_migrate_current_entry_untouched`       | A `1.2` entry performs no store write and no entry update.                                                                                                  | hass, mock_config_entry                  |
-| `test_migrate_pending_import_still_runs`     | Legacy entry with `import_aliases=True` and `imports_done_at.aliases is None` → the S1 setup import runs once and stamps (§4.4).                            | hass, legacy_config_entry, area_registry |
-| `test_migrate_stamped_import_does_not_rerun` | Same entry with a stamp present → no import runs (stamp guard intact).                                                                                      | hass, legacy_config_entry                |
-| `test_config_entry_version_decoupled`        | `CONFIG_ENTRY_VERSION`/`MINOR` are independent constants; `STORAGE_VERSION` is still 1 and `schema_version` unchanged (D5).                                 | —                                        |
+| ID                                      | Purpose                                                                                                                                                     | Fixtures                            |
+| --------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------- |
+| `test_migrate_transfers_legacy_fields`  | A 1.1 entry with the full legacy set → after setup the store's `home_config` carries all five values; `minor_version == 2`.                                 | hass, legacy_config_entry           |
+| `test_migrate_no_data_loss_non_default` | Non-default values (`unit_within_building`, all toggles `True`, threshold 10) survive the transfer exactly.                                                 | hass, legacy_config_entry           |
+| `test_migrate_partial_entry_data`       | An entry missing some legacy keys → only present keys are applied; store defaults survive for the rest (no blanking).                                       | hass                                |
+| `test_migrate_clears_legacy_keys`       | Amended 2026-07-25: after migration `entry.data == {}` — the keys are dropped by the same update that bumps the version (D8 as amended).                    | hass, legacy_config_entry           |
+| `test_migrate_is_idempotent`            | A second setup/reload runs no transfer and leaves store + entry unchanged (step 2 short-circuit).                                                           | hass, legacy_config_entry           |
+| `test_migrate_store_error_defers_bump`  | Store load raising a transient error during migration → migration returns `True`, `minor_version` stays 1, setup surfaces the error; a later load migrates. | hass, legacy_config_entry           |
+| `test_migrate_future_minor_rejected`    | Entry at `1.3` → `async_migrate_entry` returns `False`, entry state `MIGRATION_ERROR`.                                                                      | hass                                |
+| `test_migrate_future_major_rejected`    | Entry at `2.1` → core rejects before the hook; state `MIGRATION_ERROR`, hook never called.                                                                  | hass                                |
+| `test_migrate_current_entry_untouched`  | A `1.2` entry performs no store write and no entry update.                                                                                                  | hass, mock_config_entry             |
+| `test_pending_import_not_run_at_setup`  | Amended 2026-07-25: a legacy entry with `import_aliases=True` imports nothing at setup and the stamp stays `null` — which is what makes the card appear.    | hass, area_registry, import_payload |
+| `test_stamped_import_does_not_rerun`    | A stamp present before the migration survives it and a later reload untouched.                                                                              | hass, legacy_config_entry           |
+| `test_config_entry_version_decoupled`   | `CONFIG_ENTRY_VERSION`/`MINOR` are independent constants; `STORAGE_VERSION` is still 1 and `schema_version` unchanged (D5).                                 | —                                   |
 
 ### Reload survival + panel path (`tests/test_websocket.py` / `tests/test_imports.py`, extend)
 
-| ID                                             | Purpose                                                                                                                         | Fixtures                          |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
-| `test_home_config_survives_reload`             | **The regression this change exists for:** `update_home_config` → reload the entry → the panel's values are still in the store. | setup_integration, hass_ws_client |
-| `test_setup_does_not_write_home_config`        | A setup with a populated store makes no `home_config` mutation (the `entry.data → store` apply is gone, §2.5).                  | setup_integration, load_payload   |
-| `test_update_home_config_mirrors_entry_stage1` | S1 only: the write-only mirror still updates `entry.data` (flip to "leaves `entry.data` untouched" in S2, D10).                 | setup_integration, hass_ws_client |
-| `test_import_service_without_flow_flags`       | `topology.import_from_core` runs and stamps for an entry whose `data` has no import keys (the new-install/panel path).          | setup_integration, area_registry  |
-| `test_imports_done_at_in_home_config_payload`  | `list_annotations`/`update_home_config` expose `imports_done_at`, which is what the panel's first-run card keys off (§4.1).     | setup_integration, hass_ws_client |
+| ID                                                | Purpose                                                                                                                                         | Fixtures                          |
+| ------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| `test_home_config_survives_reload`                | **The regression this change exists for:** `update_home_config` → reload the entry → the panel's values are still in the store.                 | setup_integration, hass_ws_client |
+| `test_setup_does_not_write_home_config`           | A setup with a populated store makes no `home_config` mutation (the `entry.data → store` apply is gone, §2.5).                                  | setup_integration, load_payload   |
+| `test_update_home_config_leaves_entry_data_empty` | Amended 2026-07-25: the panel edit writes the store only — `entry.data` stays `{}` and the §4.9 response payload is unchanged (D10 as amended). | setup_integration, hass_ws_client |
+| `test_import_service_without_flow_flags`          | `topology.import_from_core` runs and stamps for an entry whose `data` has no import keys (the new-install/panel path).                          | setup_integration, area_registry  |
+| `test_imports_done_at_in_home_config_payload`     | `list_annotations`/`update_home_config` expose `imports_done_at`, which is what the panel's first-run card keys off (§4.1).                     | setup_integration, hass_ws_client |
 
 ### Frontend (`frontend/src/test/first-run.spec.ts`, vitest)
 
@@ -596,16 +639,16 @@ covered by the rows above.)
 
 ## 7. Boundaries — what stays out
 
-| Item                                                                        | Stance                                                                                                                                                                       |
-| --------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Store schema change** (new field, marker, version bump)                   | **Out.** The store schema v1 is frozen with `additionalProperties: false`; the config entry's `minor_version` is the migration marker (§3.3).                                |
-| **New WS command / enum / entity / `health` field / service**               | **Out.** The panel first-run card drives the existing `topology.import_from_core` service over core's `call_service` (§4.2).                                                 |
-| **Options flow**                                                            | **Out.** Settings live in the panel; adding an options flow would re-create exactly the duplication this change removes.                                                     |
-| **Removing the config flow or the reconfigure step**                        | **Out.** HA creates entries only via a flow (Bronze `config-flow`, `test-before-configure`); the reconfigure step stays for the Gold `reconfiguration-flow` rule (§2.2, D3). |
-| **`manifest.json` `version` / `quality_scale` / tag / release**             | **Out** (ADR "Release Strategy"). The only version change is the config-entry `MINOR_VERSION` (§3.1).                                                                        |
-| **S2 cleanup** (deleting the legacy keys, the mirror, `_run_setup_imports`) | **Out of this change by design** — it is the second stage, after the window (§3.5). Only its shape is frozen here.                                                           |
-| **Panel redesign / 3D / map card / uninstall purge / user docs**            | **Out.** Unchanged Phase-7 §7 fences; this follow-up adds exactly one panel card.                                                                                            |
-| **Touching Phase-3–7 artifacts**                                            | **Out.** None of them read `entry.data`; the WS contract, entities, repairs, diagnostics, and services are untouched.                                                        |
+| Item                                                                            | Stance                                                                                                                                                                       |
+| ------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Store schema change** (new field, marker, version bump)                       | **Out.** The store schema v1 is frozen with `additionalProperties: false`; the config entry's `minor_version` is the migration marker (§3.3).                                |
+| **New WS command / enum / entity / `health` field / service**                   | **Out.** The panel first-run card drives the existing `topology.import_from_core` service over core's `call_service` (§4.2).                                                 |
+| **Options flow**                                                                | **Out.** Settings live in the panel; adding an options flow would re-create exactly the duplication this change removes.                                                     |
+| **Removing the config flow or the reconfigure step**                            | **Out.** HA creates entries only via a flow (Bronze `config-flow`, `test-before-configure`); the reconfigure step stays for the Gold `reconfiguration-flow` rule (§2.2, D3). |
+| **`manifest.json` `version` / `quality_scale` / tag / release**                 | **Out** (ADR "Release Strategy"). The only version change is the config-entry `MINOR_VERSION` (§3.1).                                                                        |
+| ~~**S2 cleanup** (deleting the legacy keys, the mirror, `_run_setup_imports`)~~ | **In**, as of the 2026-07-25 amendment: the window is collapsed and the cleanup ships with the transfer (§3.5). Kept here so the fence's history stays readable.             |
+| **Panel redesign / 3D / map card / uninstall purge / user docs**                | **Out.** Unchanged Phase-7 §7 fences; this follow-up adds exactly one panel card.                                                                                            |
+| **Touching Phase-3–7 artifacts**                                                | **Out.** None of them read `entry.data`; the WS contract, entities, repairs, diagnostics, and services are untouched.                                                        |
 
 ---
 
@@ -654,33 +697,43 @@ Each row is a choice this plan makes, with a recommended, minimal-invasive optio
 and the counter-argument. **All fourteen were ratified by the maintainer on
 2026-07-24 — every "Recommended option" is now the binding decision and the
 implementation may be written against it.** The counter-arguments are retained as
-the record of what was weighed, not as live alternatives: in particular the
-two-stage deprecation window (D8/D9/D10/D12) is **confirmed as specified** — S1
-keeps the legacy `entry.data` keys, the write-only mirror, and the stamp-guarded
-`_run_setup_imports`; S2 removes all three. Collapsing the stages was the
-recorded alternative and is **not** what was ratified.
+the record of what was weighed, not as live alternatives.
 
-| #   | Question / gap                                           | Recommended option                                                                                                                                                                    | Note / counter-argument                                                                                                                                                                                                                                                                                                       |
-| --- | -------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| D1  | Scope of this follow-up                                  | **Flow slimming + field removal + `entry.data`→store migration + the panel first-run card.** Nothing else; S2 cleanup is specified but not implemented (§7).                          | Matches the Phase-7 §7 boundary row and D14's "sequence the field removal into a Phase-2 follow-up". Ratify the fence.                                                                                                                                                                                                        |
-| D2  | Confirm-only step vs. empty schema form                  | **A form with an explicit empty schema** (`vol.Schema({})`), submitted to create the entry.                                                                                           | Alternatives: `data_schema=None` (equivalent at runtime — the schema is only applied when non-`None`, A.3 — but less explicit and harder to assert in a test); **auto-create without any form** (rejected: a form is what makes a _recoverable_ `area_registry_unavailable` / `store_corrupt` error displayable at all).      |
-| D3  | Keep or drop `async_step_reconfigure`                    | **Keep it, confirm-only** — re-runs the checks, reloads, aborts `reconfigure_successful`.                                                                                             | Gold `reconfiguration-flow` + ADR "Editing Surface" assume it exists, and `quality_scale: platinum` is declared. Counter: a form that configures nothing is arguably noise — mitigated by description text. Dropping it is a scale regression this follow-up has no mandate for.                                              |
-| D4  | Import opt-in: panel action vs. service vs. keep in flow | **Panel first-run card calling the existing `topology.import_from_core` service** (`hass.callService`), per source, while the stamp is `null`.                                        | No new WS command, no new service, no new store field (§4.2). Alternatives: _keep the flow checkboxes_ (rejected — it is the one field pair D14 explicitly names for relocation, and a setup dialog is the worst place for a one-shot action); _a new WS command_ (rejected — the service already does exactly this).         |
-| D5  | Config-entry version bump                                | **`MINOR_VERSION` 1 → 2, `VERSION` stays 1**, via new `CONFIG_ENTRY_VERSION`/`CONFIG_ENTRY_MINOR_VERSION` constants that **decouple the flow from `STORAGE_VERSION`**.                | The change is backwards-compatible, so minor is the correct HA semantics. The decoupling is not optional: bumping through today's `VERSION = STORAGE_VERSION` alias would migrate and rewrite every store and break rollback (§3.1). A major bump is the alternative — rejected as unnecessarily disruptive.                  |
-| D6  | Where the `entry.data`→store transfer happens            | **In `async_migrate_entry`**, once, flushed with `async_save_now()` before the version bump.                                                                                          | Alternative: keep applying at setup and merely stop after a flag (rejected — the flag would have to live in the frozen store schema). Risk: migration failure is a non-recoverable `MIGRATION_ERROR`; mitigated by returning `True` **without** bumping on store errors so setup reports the real cause (§3.2 step 3).        |
-| D7  | Precedence when `entry.data` and the store disagree      | **`entry.data` wins, once.**                                                                                                                                                          | Behavior preservation: today's setup applies `entry.data` over the store on every load, so those are the values the user currently sees. Alternatives (store wins / fill-missing-only) would silently change the visible state at the upgrade instant.                                                                        |
-| D8  | `entry.data` after the slimming                          | **S1: keep the legacy keys frozen (read by nothing); S2: `{}`.**                                                                                                                      | Gives the deprecation window actual content: a rollback during S1 finds its fields. Alternative: clear immediately (simpler, ~20 fewer transitional lines, ADR-permitted pre-1.0.0) — the single biggest simplification available if the maintainer waives the window.                                                        |
-| D9  | Deprecation-window length / policy                       | **S2 no earlier than the end of the next phase, no later than the 1.0.0 release preparation** (§3.5).                                                                                 | ADR "Release Strategy" makes "N releases" meaningless pre-1.0.0 — phases are the real cadence. Alternative: collapse S1+S2 into one change now (see D8).                                                                                                                                                                      |
-| D10 | Fate of `_sync_home_config_to_entry`                     | **S1: keep, write-only, comment rewritten; S2: delete.**                                                                                                                              | Keeps a rollback during S1 faithful to the user's latest panel edits. Counter: it perpetuates the duplication the change is removing and costs one entry write per panel edit. Deleting it in S1 is the simpler option and only degrades rollback fidelity.                                                                   |
-| D11 | Downgrade rejection                                      | **`return False` for a higher major or a higher minor** (the documented HA idiom); core already blocks the major case.                                                                | Explicit, visible, testable. Counter: during S1 a higher-minor entry would in fact still work (the legacy keys are present), so `False` is stricter than strictly necessary and costs an unrecoverable `MIGRATION_ERROR`. After S2 the strictness is required.                                                                |
-| D12 | Pending (opted-in, never executed) one-shot imports      | **Keep `_run_setup_imports` through S1** (stamp-guarded, so it can fire at most once); delete in S2.                                                                                  | No user intent is dropped by the migration, with zero new code. Alternatives: _run pending imports inside the migration_ (rejected — a migration should reshape data, not execute feature behavior, and it has no clean error surface); _drop them and rely on the panel card_ (acceptable, but silently discards an opt-in). |
-| D13 | Dead translation keys                                    | **Remove** the `config.step.*.data*` blocks **and** `selector.occupancy_extent` (its only consumer was the flow selector).                                                            | Keeps `en.json` honest. Counter: `selector.occupancy_extent` is a string a future surface might want back — but panel i18n is frontend-side (Phase-7 D11), so nothing in Python will consume it. Trivially reversible.                                                                                                        |
-| D14 | Test-fixture strategy for the old shape                  | **Change `entry_data` to `{}`, pin `mock_config_entry` to the current minor version, and add explicit `legacy_entry_data` / `legacy_config_entry` fixtures** for the migration tests. | Keeps the ~20 existing suites on the new shape while the legacy shape is exercised deliberately. Alternative: parametrize every setup fixture over both shapes (rejected — it would run the migration inside unrelated suites and hide failures).                                                                             |
+**Amended 2026-07-25:** four rows were re-decided in favour of their recorded
+alternative — **D8, D9, D10 and D12 now collapse the two-stage window into a
+single change** (§3.5). The amended text is in the rows themselves. D1–D7, D11,
+D13 and D14 stand exactly as ratified on 2026-07-24.
 
-**Open verification items — the five carve-outs that survive ratification. These
-are facts to establish as the first task of the implementation PR, not free
-choices; each has a stated fallback that changes a mechanism, never a ratified
-decision:**
+| #   | Question / gap                                           | Recommended option                                                                                                                                                                                        | Note / counter-argument                                                                                                                                                                                                                                                                                                  |
+| --- | -------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| D1  | Scope of this follow-up                                  | **Flow slimming + field removal + `entry.data`→store migration + the panel first-run card.** Nothing else. (Amended 2026-07-25: the cleanup formerly deferred to S2 is inside this scope, §3.5.)          | Matches the Phase-7 §7 boundary row and D14's "sequence the field removal into a Phase-2 follow-up". Ratify the fence.                                                                                                                                                                                                   |
+| D2  | Confirm-only step vs. empty schema form                  | **A form with an explicit empty schema** (`vol.Schema({})`), submitted to create the entry.                                                                                                               | Alternatives: `data_schema=None` (equivalent at runtime — the schema is only applied when non-`None`, A.3 — but less explicit and harder to assert in a test); **auto-create without any form** (rejected: a form is what makes a _recoverable_ `area_registry_unavailable` / `store_corrupt` error displayable at all). |
+| D3  | Keep or drop `async_step_reconfigure`                    | **Keep it, confirm-only** — re-runs the checks, reloads, aborts `reconfigure_successful`.                                                                                                                 | Gold `reconfiguration-flow` + ADR "Editing Surface" assume it exists, and `quality_scale: platinum` is declared. Counter: a form that configures nothing is arguably noise — mitigated by description text. Dropping it is a scale regression this follow-up has no mandate for.                                         |
+| D4  | Import opt-in: panel action vs. service vs. keep in flow | **Panel first-run card calling the existing `topology.import_from_core` service** (`hass.callService`), per source, while the stamp is `null`.                                                            | No new WS command, no new service, no new store field (§4.2). Alternatives: _keep the flow checkboxes_ (rejected — it is the one field pair D14 explicitly names for relocation, and a setup dialog is the worst place for a one-shot action); _a new WS command_ (rejected — the service already does exactly this).    |
+| D5  | Config-entry version bump                                | **`MINOR_VERSION` 1 → 2, `VERSION` stays 1**, via new `CONFIG_ENTRY_VERSION`/`CONFIG_ENTRY_MINOR_VERSION` constants that **decouple the flow from `STORAGE_VERSION`**.                                    | The change is backwards-compatible, so minor is the correct HA semantics. The decoupling is not optional: bumping through today's `VERSION = STORAGE_VERSION` alias would migrate and rewrite every store and break rollback (§3.1). A major bump is the alternative — rejected as unnecessarily disruptive.             |
+| D6  | Where the `entry.data`→store transfer happens            | **In `async_migrate_entry`**, once, flushed with `async_save_now()` before the version bump.                                                                                                              | Alternative: keep applying at setup and merely stop after a flag (rejected — the flag would have to live in the frozen store schema). Risk: migration failure is a non-recoverable `MIGRATION_ERROR`; mitigated by returning `True` **without** bumping on store errors so setup reports the real cause (§3.2 step 3).   |
+| D7  | Precedence when `entry.data` and the store disagree      | **`entry.data` wins, once.**                                                                                                                                                                              | Behavior preservation: today's setup applies `entry.data` over the store on every load, so those are the values the user currently sees. Alternatives (store wins / fill-missing-only) would silently change the visible state at the upgrade instant.                                                                   |
+| D8  | `entry.data` after the slimming                          | **Amended 2026-07-25: `{}` immediately** — the legacy keys are removed in the same `async_update_entry` call that bumps the version. (Ratified 2026-07-24 was: keep them frozen through S1, clear in S2.) | The maintainer waived the window, so the alternative recorded here on 2026-07-24 became the decision: ~20 fewer transitional lines and one live copy of the configuration instead of two. Given up: a rollback no longer finds its fields in `entry.data` (§3.5, accepted risk).                                         |
+| D9  | Deprecation-window length / policy                       | **Amended 2026-07-25: no window — S1 and S2 ship as one change** (§3.5). (Ratified 2026-07-24 was: S2 no earlier than the end of the next phase, no later than the 1.0.0 preparation.)                    | ADR "Release Strategy" makes "N releases" meaningless pre-1.0.0 and expressly allows a pre-1.0.0 change with no public deprecation window. Counting the window in phases would have cost a whole phase of carrying two copies of the same configuration for rollback fidelity alone.                                     |
+| D10 | Fate of `_sync_home_config_to_entry`                     | **Amended 2026-07-25: delete it now**, with its call site and its `CONF_*` imports. (Ratified 2026-07-24 was: keep it write-only through S1.)                                                             | With no window there is nothing left for the mirror to serve: it would perpetuate exactly the duplication this change removes and cost one config-entry write per panel edit. `ws_update_home_config` itself is untouched (frozen §4.9).                                                                                 |
+| D11 | Downgrade rejection                                      | **`return False` for a higher major or a higher minor** (the documented HA idiom); core already blocks the major case.                                                                                    | Explicit, visible, testable. Counter: during S1 a higher-minor entry would in fact still work (the legacy keys are present), so `False` is stricter than strictly necessary and costs an unrecoverable `MIGRATION_ERROR`. After S2 the strictness is required.                                                           |
+| D12 | Pending (opted-in, never executed) one-shot imports      | **Amended 2026-07-25: delete `_run_setup_imports` now** and rely on the panel first-run card. (Ratified 2026-07-24 was: keep it stamp-guarded through S1.)                                                | Nothing is silently discarded after all: the card appears exactly when `imports_done_at.<source>` is `null`, which is the same condition the function tested — a pending opt-in surfaces as a visible, one-click action instead of a silent boot-time import. Running imports inside the migration stays rejected.       |
+| D13 | Dead translation keys                                    | **Remove** the `config.step.*.data*` blocks **and** `selector.occupancy_extent` (its only consumer was the flow selector).                                                                                | Keeps `en.json` honest. Counter: `selector.occupancy_extent` is a string a future surface might want back — but panel i18n is frontend-side (Phase-7 D11), so nothing in Python will consume it. Trivially reversible.                                                                                                   |
+| D14 | Test-fixture strategy for the old shape                  | **Change `entry_data` to `{}`, pin `mock_config_entry` to the current minor version, and add explicit `legacy_entry_data` / `legacy_config_entry` fixtures** for the migration tests.                     | Keeps the ~20 existing suites on the new shape while the legacy shape is exercised deliberately. Alternative: parametrize every setup fixture over both shapes (rejected — it would run the migration inside unrelated suites and hide failures).                                                                        |
+
+**Open verification items — RESOLVED 2026-07-25 during implementation. All five
+came out as this plan assumed, so no fallback was taken and no decision moved.
+The evidence is recorded here; the original items follow underneath.**
+
+| #   | Item                                       | Result                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| --- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | Field-less form submission (D2)            | **Confirmed.** `frontend/src/dialogs/config-flow/step-flow-form.ts`: `_stepData` is seeded from `computeInitialHaFormData(step.data_schema)`, `checkAllRequiredFields` is `[].every(...) === true` for an empty schema, and `_submitStep` builds `toSendData` by iterating `stepData`'s keys — so an empty schema submits `{}`. The `<ha-form>` is skipped for an empty schema but the dialog's submit button is rendered unconditionally for a `form` step (`dialog-data-entry-flow.ts`). §2.1 stands. |
+| 2   | hassfest on a `config.step` with no `data` | **Confirmed green.** `script/hassfest` (2026.7.4) passes with both steps carrying only `title` + `description`. The empty-`data`-object fallback was not needed.                                                                                                                                                                                                                                                                                                                                        |
+| 3   | Reconfigure reachability (D3)              | **Confirmed reachable.** `ha-config-entry-row.ts` gates the ⋮ menu's Reconfigure item on `!item.disabled_by && item.supports_reconfigure && item.source !== "system"` — `config_panel_domain` is read only by `_configPanel`, which swaps the row's _settings_ affordance for a panel link. The two are independent, so D3 does not flip.                                                                                                                                                               |
+| 4   | `MockConfigEntry` version defaults (D14)   | **Confirmed necessary.** In the pinned `pytest-homeassistant-custom-component==0.13.344` the defaults are `version=1, minor_version=1` — the legacy shape. Without D14's explicit pin every unrelated suite would have run the migration; the fixtures now set both.                                                                                                                                                                                                                                    |
+| 5   | `hass.callService` availability (§4.2)     | **Confirmed.** The frontend's `HomeAssistant` interface extends `HomeAssistantApi`, which declares `callService<T>(domain, service, serviceData?, target?, notifyOnError?, returnResponse?)`. `ha.ts` adds it as an optional structural member and the caller checks before use; the `sendMessagePromise` fallback was not needed.                                                                                                                                                                      |
+
+The original items, for the record:
 
 1. **Empty-schema form submission (D2).** This plan verified in the Python layer
    that a `vol.Schema({})` form validates `{}` and that the step is re-entered
