@@ -83,7 +83,7 @@ response field, `health` field, entity, or service is added or changed.
 | ---------------------------------------------------------------------------------------------------------------------------- | ---------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `custom_components/topology/const.py`                                                                                        | **extend** | Add `CONFIG_ENTRY_VERSION = 1` and `CONFIG_ENTRY_MINOR_VERSION = 2` (S2: `3`) and `LEGACY_CONF_KEYS` (the five/seven Phase-2 flow keys). **Decouples the config-entry version from `STORAGE_VERSION`** (§3.1, D5). The `CONF_*` constants stay — the migration still reads them (S1) and S2 deletes them with the keys.     |
 | `custom_components/topology/config_flow_handler/config_flow.py`                                                              | **extend** | `VERSION`/`MINOR_VERSION` from the new constants; `async_step_user` becomes confirm-only and creates the entry with `data={}`; `async_step_reconfigure` becomes confirm-only (re-runs the checks, reloads, aborts `reconfigure_successful`); `_normalize()` deleted. The three checks in `_async_run_checks` are unchanged. |
-| `config_flow_handler/schemas/config.py`                                                                                      | **extend** | `get_user_schema` / `get_reconfigure_schema` collapse into one `get_confirm_schema() -> vol.Schema` returning `vol.Schema({})`; the selectors, defaults helpers, and the `CONF_*` imports go away. Module is kept (AGENTS.md package layout) rather than deleted.                                                           |
+| `custom_components/topology/config_flow_handler/schemas/config.py`                                                           | **extend** | `get_user_schema` / `get_reconfigure_schema` collapse into one `get_confirm_schema() -> vol.Schema` returning `vol.Schema({})`; the selectors, defaults helpers, and the `CONF_*` imports go away. Module is kept (AGENTS.md package layout) rather than deleted.                                                           |
 | `custom_components/topology/__init__.py`                                                                                     | **extend** | **Add `async_migrate_entry`** (§3.2). **Remove** the unconditional `store.async_apply_home_config(...)` call from `async_setup_entry` (§2.5) — the store is no longer overwritten from `entry.data` on every load. `_run_setup_imports` **stays through S1** (guarded by the stamp) and is **removed in S2** (§4.4, D12).   |
 | `custom_components/topology/websocket_api.py`                                                                                | **extend** | S1: `_sync_home_config_to_entry` **stays, write-only** (downgrade insurance, §2.6/D10) with its comment rewritten — it no longer prevents a reload from clobbering, because nothing reads `entry.data` any more. S2: the helper and its `CONF_*` imports are deleted. `ws_update_home_config` itself is unchanged.          |
 | `custom_components/topology/store.py`                                                                                        | **keep**   | `async_apply_home_config` keeps its exact signature; only its **caller** moves (setup → migration). `async_update_home_config` / `async_mark_import_done` untouched. No schema, no new field — the store schema's `additionalProperties: false` forbids a "migrated" marker, which is why the config entry carries it.      |
@@ -609,7 +609,7 @@ covered by the rows above.)
 
 ---
 
-## 8. Umsetzungs-DAG
+## 8. Umsetzungs-DAG (cluster ordering)
 
 "A → B" = A must precede B. One developer, ~1 day (plus the frontend card).
 
@@ -782,7 +782,10 @@ follow-up** (§3.1). `STORAGE_VERSION` stays `1`.
 
 ## Appendix B — verified topology substrate (`main`, Phase 1–7 merged)
 
-Read from the tree at `6eb5a05`; every statement above is written against these:
+Read from the tree at `6eb5a05`; every statement above is written against these.
+Paths in this appendix are relative to `custom_components/topology/` (except the
+`frontend/` and `tests/` entries, which are repo-root paths); the §1 delta table
+spells every path out in full.
 
 - `config_flow_handler/config_flow.py`: `TopologyConfigFlowHandler` with
   **`VERSION = STORAGE_VERSION`** (the alias §3.1 removes) and
