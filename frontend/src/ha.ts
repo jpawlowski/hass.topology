@@ -38,6 +38,17 @@ export interface HomeAssistant {
   user?: HassUser;
   language?: string;
   localize?: (key: string, ...args: unknown[]) => string;
+  /**
+   * Core's own service call, used by the panel's first-run card to drive the
+   * existing `topology.import_from_core` service — no new topology WS command
+   * (§4.2). Declared optional because this is a structural subset of a type the
+   * panel does not import; the caller checks before using it.
+   */
+  callService?: (
+    domain: string,
+    service: string,
+    serviceData?: Record<string, unknown>,
+  ) => Promise<unknown>;
 }
 
 /** HA sets `route` on the panel element (§2.2 / A.5). */

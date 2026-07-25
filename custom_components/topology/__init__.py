@@ -17,27 +17,27 @@ from __future__ import annotations
 
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
 
 from .const import (
-    CONF_IMPORT_ALIASES,
-    CONF_IMPORT_LABELS,
     CONF_OCCUPANCY_EXTENT,
     CONF_PROJECT_ENVIRONMENT,
     CONF_PROJECT_TRUST,
     CONF_PROJECT_TYPE,
     CONF_UNANNOTATED_REPAIR_THRESHOLD,
+    CONFIG_ENTRY_MINOR_VERSION,
+    CONFIG_ENTRY_VERSION,
     DOMAIN,
-    IMPORT_SOURCE_ALIASES,
-    IMPORT_SOURCE_LABELS,
     ISSUE_STORE_FUTURE_VERSION,
     LEARN_MORE_URL,
+    LEGACY_CONF_KEYS,
+    LOGGER,
     PANEL_BUILD_MANIFEST,
     PANEL_DIR,
     PANEL_ICON,
@@ -50,14 +50,11 @@ from .const import (
 from .coordinator import TopologyCoordinator, TopologyRegistryWatcher
 from .data import TopologyRuntimeData
 from .service_actions import async_setup_services
-from .service_actions.imports import async_run_import
 from .service_actions.label_projection import async_reconcile_labels
 from .store import StoreCorruptError, StoreFutureVersionError, TopologyStore, TopologyStoreError
 from .websocket_api import async_register_websocket_api
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from homeassistant.core import HomeAssistant
 
     from .data import TopologyConfigEntry
@@ -140,6 +137,111 @@ async def _async_register_panel(hass: HomeAssistant, entry: TopologyConfigEntry)
     entry.async_on_unload(lambda: frontend.async_remove_panel(hass, PANEL_URL_PATH, warn_if_unknown=False))
 
 
+async def async_migrate_entry(
+    hass: HomeAssistant,
+    entry: TopologyConfigEntry,
+) -> bool:
+    """Migrate a config entry to ``CONFIG_ENTRY_VERSION.CONFIG_ENTRY_MINOR_VERSION``.
+
+    1.1 -> 1.2 transfers the legacy flow fields into the store — the single
+    source of truth for home config — and then empties ``entry.data``. Core calls
+    this immediately before ``async_setup_entry``.
+
+    The order is load-bearing: the store is written, flushed **and read back**
+    before any key is considered migrated, and ``entry.data`` is only reduced
+    once that verification passed, so every failure path simply retries on the
+    next load.
+    """
+    if entry.version > CONFIG_ENTRY_VERSION or (
+        entry.version == CONFIG_ENTRY_VERSION and entry.minor_version > CONFIG_ENTRY_MINOR_VERSION
+    ):
+        # Core already rejects a higher *major* before reaching us; a higher
+        # minor does arrive here and must be refused explicitly — after the
+        # migration the legacy keys are gone, so tolerating it would mean older
+        # code silently reconfiguring the store from an empty entry (D11).
+        LOGGER.error(
+            "Config entry version %s.%s is newer than the supported %s.%s — restore a backup or upgrade again",
+            entry.version,
+            entry.minor_version,
+            CONFIG_ENTRY_VERSION,
+            CONFIG_ENTRY_MINOR_VERSION,
+        )
+        return False
+
+    if entry.minor_version >= CONFIG_ENTRY_MINOR_VERSION:
+        return True
+
+    store = TopologyStore(hass)
+    try:
+        await store.async_load()
+    except TopologyStoreError as err:
+        # Do NOT return False here: a migration failure parks the entry in the
+        # non-recoverable MIGRATION_ERROR state and hides the real cause.
+        # Returning True *without* bumping leaves the entry at 1.1 (so the next
+        # load retries) while ``async_setup_entry`` — which runs right after —
+        # raises the proper ConfigEntryError/ConfigEntryNotReady and creates the
+        # store_future_version repair issue (§3.2 step 3).
+        LOGGER.warning("Deferring config entry migration: the topology store could not be read (%s)", err)
+        return True
+
+    # ``entry.data`` wins, once (D7): today's setup applies it over the store on
+    # every load, so these are the values the user currently sees. Absent keys
+    # stay None and are skipped by the store, so a hand-trimmed entry cannot
+    # blank a stored value.
+    data = entry.data
+    await store.async_apply_home_config(
+        occupancy_extent=data.get(CONF_OCCUPANCY_EXTENT),
+        project_environment=data.get(CONF_PROJECT_ENVIRONMENT),
+        project_type=data.get(CONF_PROJECT_TYPE),
+        project_trust=data.get(CONF_PROJECT_TRUST),
+        unannotated_repair_threshold=data.get(CONF_UNANNOTATED_REPAIR_THRESHOLD),
+    )
+    if not await _async_flush_and_verify(hass, store):
+        # Same deferral as a load error, for the same reason: the entry keeps its
+        # legacy keys at 1.1 and the next load retries.
+        return True
+
+    # Only now: drop the legacy keys and bump, in one update (§3.2 step 6).
+    hass.config_entries.async_update_entry(
+        entry,
+        data={key: value for key, value in data.items() if key not in LEGACY_CONF_KEYS},
+        minor_version=CONFIG_ENTRY_MINOR_VERSION,
+    )
+    return True
+
+
+async def _async_flush_and_verify(hass: HomeAssistant, store: TopologyStore) -> bool:
+    """Flush the migrated store and confirm it really reached disk (§3.2 step 5).
+
+    "The save did not raise" is not the same as "the save succeeded": HA's
+    ``Store._async_handle_write_data`` **catches** ``WriteError`` (what a full or
+    read-only disk produces) and only logs it, while an ``OSError`` from creating
+    the storage directory escapes instead. Trusting either outcome blindly would
+    let the caller empty ``entry.data`` after a write that never happened — the
+    one way this migration could lose data.
+
+    So the payload is loaded back exactly the way ``async_setup_entry`` will load
+    it, and the home config is compared. Returns ``False`` on any doubt, which
+    the caller turns into a deferral: nothing is bumped, nothing is cleared, and
+    the next load simply retries (§3.3). This is one extra read on the single
+    boot that migrates.
+    """
+    try:
+        await store.async_save_now()
+        verify = TopologyStore(hass)
+        await verify.async_load()
+    except (OSError, HomeAssistantError) as err:
+        LOGGER.warning("Deferring config entry migration: the topology store could not be written (%s)", err)
+        return False
+
+    if verify.data["home_config"] != store.data["home_config"]:
+        LOGGER.warning(
+            "Deferring config entry migration: the topology store did not persist the transferred home config"
+        )
+        return False
+    return True
+
+
 async def async_setup_entry(
     hass: HomeAssistant,
     entry: TopologyConfigEntry,
@@ -149,6 +251,10 @@ async def async_setup_entry(
     Runs the test-before-setup checks (§5.3): a transient I/O failure raises
     ``ConfigEntryNotReady``; corrupt JSON raises ``ConfigEntryError``; a future
     store version raises ``ConfigEntryError`` and creates a repair issue.
+
+    Setup never writes ``home_config``: the store is the source of truth and
+    ``entry.data`` is never read back as configuration, so a reload leaves the
+    panel's edits alone (§2.5 — the regression this change removes).
     """
     store = TopologyStore(hass)
     try:
@@ -175,22 +281,6 @@ async def async_setup_entry(
 
     coordinator = TopologyCoordinator(hass, entry, store)
 
-    # Sync the config-entry fields into the store's home_config (§5): the store
-    # is what the read hook serves; entry data is the flow's own state.
-    data = entry.data
-    await store.async_apply_home_config(
-        occupancy_extent=data.get(CONF_OCCUPANCY_EXTENT),
-        project_environment=data.get(CONF_PROJECT_ENVIRONMENT),
-        project_type=data.get(CONF_PROJECT_TYPE),
-        project_trust=data.get(CONF_PROJECT_TRUST),
-        unannotated_repair_threshold=data.get(CONF_UNANNOTATED_REPAIR_THRESHOLD),
-    )
-
-    # One-shot imports (§2.7.2): run pre-seed so the initial snapshot already
-    # reflects the imported annotations and the stamp. Each source fires once —
-    # when opted-in and not yet stamped — then never again (the stamp guards it).
-    await _run_setup_imports(hass, store, data)
-
     coordinator.async_seed(store.snapshot())
 
     entry.runtime_data = TopologyRuntimeData(store=store, coordinator=coordinator)
@@ -211,23 +301,6 @@ async def async_setup_entry(
     await _async_register_panel(hass, entry)
 
     return True
-
-
-async def _run_setup_imports(
-    hass: HomeAssistant,
-    store: TopologyStore,
-    data: Mapping[str, Any],
-) -> None:
-    """Run the setup-time one-shot imports for opted-in, unstamped sources (§2.7.2)."""
-    snapshot = store.snapshot()
-    sources = (
-        (IMPORT_SOURCE_ALIASES, CONF_IMPORT_ALIASES, snapshot.home_config.imports_done_at_aliases),
-        (IMPORT_SOURCE_LABELS, CONF_IMPORT_LABELS, snapshot.home_config.imports_done_at_labels),
-    )
-    for source, conf_key, done_at in sources:
-        if data.get(conf_key) and done_at is None:
-            await async_run_import(hass, store, source)
-            await store.async_mark_import_done(source)
 
 
 async def async_unload_entry(

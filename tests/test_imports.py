@@ -1,8 +1,9 @@
 """Phase 6 one-shot import tests (PLAN-topology-phase6.md §6).
 
-Covers the fill-empty-only alias/label heuristics, the ``imports_done_at`` stamp,
-the setup-time one-shot (opt-in + unstamped) with its stamp guard, and the manual
-service re-run that ignores the stamp (D11).
+Covers the fill-empty-only alias/label heuristics, the ``imports_done_at`` stamp
+that guards the panel's first-run card, and the manual service re-run that
+ignores the stamp (D11). The setup-time one-shot is gone: the opt-in is a panel
+action, not a config-flow field (PLAN-topology-phase2-followup-configflow.md §4).
 """
 
 from __future__ import annotations
@@ -15,7 +16,8 @@ import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.topology.const import (
-    CONF_IMPORT_ALIASES,
+    CONFIG_ENTRY_MINOR_VERSION,
+    CONFIG_ENTRY_VERSION,
     DOMAIN,
     LABEL_OWNED_DESCRIPTION,
     SERVICE_IMPORT_FROM_CORE,
@@ -123,29 +125,36 @@ async def test_import_stamps_done_at(
     assert setup_integration.runtime_data.store.snapshot().home_config.imports_done_at_aliases is not None
 
 
-async def test_import_oneshot_at_setup(
+async def test_import_service_without_flow_flags(
     hass: HomeAssistant,
     import_payload: dict[str, str],
     entry_data: dict[str, Any],
 ) -> None:
-    """Opt-in + unstamped ⇒ import runs once at setup; a stamped store does not re-import."""
-    # Part A: opted-in, unstamped -> setup imports.
+    """The import runs and stamps for an entry whose data carries no import keys.
+
+    This is the new-install / panel path: the opt-in is no longer a config-flow
+    field, so the service must work off an empty ``entry.data`` (§4.2).
+    """
     _write_store(hass, _store_payload(imports_done_at={"aliases": None, "labels": None}))
-    entry_a = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, data={**entry_data, CONF_IMPORT_ALIASES: True})
-    entry_a.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry_a.entry_id)
-    await hass.async_block_till_done()
-    assert _annotation(entry_a, import_payload["kitchen"]).type == "kitchen"
-    await hass.config_entries.async_remove(entry_a.entry_id)
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data=entry_data,
+        version=CONFIG_ENTRY_VERSION,
+        minor_version=CONFIG_ENTRY_MINOR_VERSION,
+    )
+    assert entry.data == {}
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
     await hass.async_block_till_done()
 
-    # Part B: opted-in but already stamped -> setup does NOT re-import.
-    _write_store(hass, _store_payload(imports_done_at={"aliases": "2026-01-01T00:00:00+00:00", "labels": None}))
-    entry_b = MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, data={**entry_data, CONF_IMPORT_ALIASES: True})
-    entry_b.add_to_hass(hass)
-    assert await hass.config_entries.async_setup(entry_b.entry_id)
-    await hass.async_block_till_done()
-    assert _annotation(entry_b, import_payload["kitchen"]) is None
+    # Nothing imported at setup — the card, not setup, drives the one-shot.
+    assert _annotation(entry, import_payload["kitchen"]) is None
+    assert entry.runtime_data.store.snapshot().home_config.imports_done_at_aliases is None
+
+    await _import(hass, "aliases")
+    assert _annotation(entry, import_payload["kitchen"]).type == "kitchen"
+    assert entry.runtime_data.store.snapshot().home_config.imports_done_at_aliases is not None
 
 
 async def test_mark_import_done_rejects_unknown_source(

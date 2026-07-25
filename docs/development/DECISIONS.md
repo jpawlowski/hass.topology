@@ -265,6 +265,37 @@ that a graph editor belongs in a real UI, not in a `SelectSelector` cascade.
 - `reconfiguration-flow` rule is satisfied even though the flow is thin.
 - Repair-issue fix-flows may deep-link into panel routes.
 
+**Amendment 2026-07-25 — the flow is now confirm-only.** Phase 7 made the panel
+reachable from the integration tile (`config_panel_domain=DOMAIN`) and shipped a
+home-config editor, which left the flow's setup-level fields duplicating a panel
+surface that could edit the same values live. Per
+[`PLAN-topology-phase2-followup-configflow.md`](PLAN-topology-phase2-followup-configflow.md)
+the split above is sharpened rather than reversed:
+
+- **Config flow (singleton)** now covers **no** settings at all. It confirms,
+  runs the three test-before-configure checks, and creates the entry with
+  `data == {}`. This is what the original "config flow for setup" line meant once
+  the panel existed: the flow is the setup act, not a settings surface.
+- **`occupancy_extent`, the three projection toggles, and the unannotated-repair
+  threshold** move entirely to the panel, edited through the frozen
+  `topology/update_home_config` command. The store is the single source of truth
+  for home config; `entry.data` is never read back as configuration.
+- **The one-time import opt-ins** are no longer settings at all. They are a
+  **panel first-run action** per source, driving the existing
+  `topology.import_from_core` service while `imports_done_at.<source>` is `null`
+  — a one-shot action never belonged in a setup dialog.
+- **The reconfigure flow stays**, also confirm-only: it re-runs the checks and
+  reloads the entry. It "mirrors the initial setup step only" as before — the
+  initial setup step simply no longer has fields to mirror. The Gold
+  `reconfiguration-flow` rule stays satisfied, and the ⋮ menu still exposes it
+  (`config_panel_domain` only swaps the row's settings affordance).
+
+**Consequence:** existing entries migrate 1.1 → 1.2, which transfers the five
+settings into the store and then empties `entry.data`. Rolling back to a
+pre-slim version keeps the store intact, but the old reconfigure form would show
+defaults rather than the real values — an accepted pre-1.0.0 cost under ADR
+"Release Strategy".
+
 ---
 
 ### Registry-Driven State With Reactive Cleanup

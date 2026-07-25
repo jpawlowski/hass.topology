@@ -26,6 +26,7 @@ import "./editors/edge-editor";
 import "./editors/beyond-editor";
 import "./editors/exterior-editor";
 import "./editors/floor-editor";
+import "./editors/first-run";
 import "./editors/home-config-editor";
 import "./editors/orphans-view";
 
@@ -223,8 +224,14 @@ export class TopologyPanel extends LitElement {
         ></topology-orphans-view>
       `;
     }
+    // The first-run card replaces the flow's one-shot import opt-ins (§4.1): it
+    // renders itself away once both sources are stamped or dismissed.
     return html`
       ${this.renderFlagged()}
+      <topology-first-run-card
+        .hass=${this.hass}
+        .homeConfig=${snapshot.home_config}
+      ></topology-first-run-card>
       <topology-home-config-editor
         .client=${this.client}
         .homeConfig=${snapshot.home_config}

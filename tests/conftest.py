@@ -5,13 +5,20 @@ from __future__ import annotations
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 import pytest
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
-from custom_components.topology.const import DOMAIN, STORAGE_KEY
+from custom_components.topology.const import CONFIG_ENTRY_MINOR_VERSION, CONFIG_ENTRY_VERSION, DOMAIN, STORAGE_KEY
 from homeassistant.core import Context
-from homeassistant.helpers import area_registry as ar, entity_registry as er, floor_registry as fr, label_registry as lr
+from homeassistant.helpers import (
+    area_registry as ar,
+    entity_registry as er,
+    floor_registry as fr,
+    label_registry as lr,
+    storage,
+)
 from homeassistant.setup import async_setup_component
 
 if TYPE_CHECKING:
@@ -41,6 +48,34 @@ def _clean_store_file(hass: HomeAssistant) -> Iterator[None]:
 
 
 @pytest.fixture
+def persisted_store(hass: HomeAssistant) -> Iterator[None]:
+    """Let topology store writes round-trip through the real file.
+
+    ``TopologyStore.async_load`` reads the on-disk envelope directly (the
+    test-before-setup corruption / future-version check, Phase-2 §5.1), but the
+    pytest harness mocks ``Store`` writes into an in-memory dict, so nothing ever
+    reaches disk. Production writes the file — which is what makes a **reload**,
+    and the migration's flush before the entry bump, observable at all. This
+    fixture restores that round-trip for the topology key only.
+    """
+    original = storage.Store._async_write_data  # noqa: SLF001
+
+    async def _write(store: storage.Store, data_to_write: dict[str, Any]) -> None:
+        await original(store, data_to_write)
+        if store.key != STORAGE_KEY:
+            return
+        envelope = dict(data_to_write)
+        if "data_func" in envelope:
+            envelope["data"] = envelope.pop("data_func")()
+        path = Path(store.path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(json.dumps(envelope), encoding="utf-8")
+
+    with patch.object(storage.Store, "_async_write_data", _write):
+        yield
+
+
+@pytest.fixture
 def store_payload_full() -> dict[str, Any]:
     """The frozen §2.5 three-room-flat store payload."""
     return json.loads(_FIXTURE.read_text(encoding="utf-8"))
@@ -48,7 +83,34 @@ def store_payload_full() -> dict[str, Any]:
 
 @pytest.fixture
 def entry_data() -> dict[str, Any]:
-    """Config-entry data with the §5.1 flow defaults."""
+    """Config-entry data as the confirm-only flow creates it: empty.
+
+    The flow collects nothing; home config lives in the store (follow-up §2.1).
+    """
+    return {}
+
+
+@pytest.fixture
+def mock_config_entry(entry_data: dict[str, Any]) -> MockConfigEntry:
+    """The singleton topology config entry, pinned to the current entry version.
+
+    ``MockConfigEntry`` defaults to ``version=1, minor_version=1`` — the *legacy*
+    shape — so without this pin every unrelated suite would silently run the
+    1.1 -> 1.2 migration (D14).
+    """
+    return MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data=entry_data,
+        title="Topology",
+        version=CONFIG_ENTRY_VERSION,
+        minor_version=CONFIG_ENTRY_MINOR_VERSION,
+    )
+
+
+@pytest.fixture
+def legacy_entry_data() -> dict[str, Any]:
+    """The frozen Phase-2 seven-key ``entry.data`` mapping (pre-slim installs)."""
     return {
         "occupancy_extent": "whole_property",
         "import_aliases": False,
@@ -61,9 +123,16 @@ def entry_data() -> dict[str, Any]:
 
 
 @pytest.fixture
-def mock_config_entry(entry_data: dict[str, Any]) -> MockConfigEntry:
-    """The singleton topology config entry."""
-    return MockConfigEntry(domain=DOMAIN, unique_id=DOMAIN, data=entry_data, title="Topology")
+def legacy_config_entry(legacy_entry_data: dict[str, Any]) -> MockConfigEntry:
+    """A pre-slim (1.1) entry carrying the legacy flow fields — migration input."""
+    return MockConfigEntry(
+        domain=DOMAIN,
+        unique_id=DOMAIN,
+        data=legacy_entry_data,
+        title="Topology",
+        version=1,
+        minor_version=1,
+    )
 
 
 @pytest.fixture

@@ -23,15 +23,7 @@ from homeassistant.core import callback
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers import area_registry as ar, floor_registry as fr
 
-from .const import (
-    CONF_OCCUPANCY_EXTENT,
-    CONF_PROJECT_ENVIRONMENT,
-    CONF_PROJECT_TRUST,
-    CONF_PROJECT_TYPE,
-    CONF_UNANNOTATED_REPAIR_THRESHOLD,
-    DOMAIN,
-    EVENT_TOPOLOGY_UPDATED,
-)
+from .const import DOMAIN, EVENT_TOPOLOGY_UPDATED
 from .data import (
     AREA_TYPE_CATALOG,
     CONNECTION_PRESETS,
@@ -829,10 +821,9 @@ async def ws_update_home_config(
         connection.send_error(msg["id"], ERR_STORE_ERROR, str(err))
         return
 
-    # Mirror the change into entry.data so the next reload's home_config sync
-    # (async_setup_entry) does not overwrite the panel edit with stale flow
-    # state (D5: this command mirrors the reconfigure flow).
-    _sync_home_config_to_entry(hass, runtime, occupancy_extent, toggles, threshold)
+    # No mirror back into entry.data: the store is the single source of truth and
+    # setup no longer applies entry.data over it, so there is nothing to protect
+    # the edit from — a reload simply re-reads the store (§2.5/§2.6).
 
     # The panel path does not reload, so reconcile labels here to make a toggle
     # flip effective immediately (§2.8 site 3).
@@ -840,33 +831,6 @@ async def ws_update_home_config(
 
     runtime.coordinator.async_publish(runtime.store.snapshot(), "home_config", [])
     connection.send_result(msg["id"], _serialize_home_config(runtime.store.snapshot()))
-
-
-@callback
-def _sync_home_config_to_entry(
-    hass: HomeAssistant,
-    runtime: TopologyRuntimeData,
-    occupancy_extent: str | None,
-    toggles: dict[str, bool] | None,
-    threshold: int | None,
-) -> None:
-    """Persist changed home-config fields into the config entry's data (§4.9)."""
-    updates: dict[str, Any] = {}
-    if occupancy_extent is not None:
-        updates[CONF_OCCUPANCY_EXTENT] = occupancy_extent
-    if toggles is not None:
-        if "environment" in toggles:
-            updates[CONF_PROJECT_ENVIRONMENT] = toggles["environment"]
-        if "type" in toggles:
-            updates[CONF_PROJECT_TYPE] = toggles["type"]
-        if "trust" in toggles:
-            updates[CONF_PROJECT_TRUST] = toggles["trust"]
-    if threshold is not None:
-        updates[CONF_UNANNOTATED_REPAIR_THRESHOLD] = threshold
-    if not updates:
-        return
-    entry = runtime.coordinator.config_entry
-    hass.config_entries.async_update_entry(entry, data={**entry.data, **updates})
 
 
 # --- serialization helpers that need a fresh snapshot ----------------------

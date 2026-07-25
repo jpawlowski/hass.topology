@@ -1,8 +1,8 @@
 """
 Data schemas for topology config-flow forms.
 
-Phase 2 defines the ``user`` / ``reconfigure`` schemas in ``config.py``
-(PLAN-topology-phase2.md §5).
+``config.py`` holds the single field-less schema both flow steps share — the
+flow is confirm-only (PLAN-topology-phase2-followup-configflow.md §2.1).
 """
 
 from __future__ import annotations
