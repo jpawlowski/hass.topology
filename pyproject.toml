@@ -27,11 +27,27 @@ exclude = [
 # This works in VSCode (uses .local/ha-venv) and GitHub Actions (uses active venv)
 venvPath = ".local"
 venv = "ha-venv"
-typeCheckingMode = "basic"
+# Platinum's `strict-typing` rule asks for strict mode plus a `py.typed` marker,
+# and this project holds the Platinum rules as a real standard even though a
+# custom integration can never formally be awarded the badge. Ruff already owns
+# unused imports/variables (F401/F841), so those two reports stay off here rather
+# than being reported twice with different wording.
+typeCheckingMode = "strict"
 reportUnusedImport = "none"
 reportUnusedVariable = "none"
-reportUnusedCoroutine = "none"
+# Home Assistant and voluptuous ship no stubs for everything we touch; the
+# resulting noise would drown real findings.
 reportMissingTypeStubs = "none"
+# Home Assistant declares entity state members (`available`, `is_on`,
+# `native_value`, `extra_state_attributes`, `entity_description`) as
+# `cached_property` on the base classes, and the documented way to supply one is
+# to override it with a plain `@property`. Pyright is right that the descriptor
+# types differ and wrong that it matters: this is the framework's own contract,
+# every HA entity does it, and there is no alternative spelling. Suppressed here
+# rather than at ~11 call sites so the rule cannot quietly hide a real override
+# bug in our own class hierarchy — we have none, `entity/base.py` adds no state
+# members.
+reportIncompatibleVariableOverride = "none"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -61,6 +77,12 @@ source = ["custom_components/topology"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
+# The master plan targets >= 95 % from Phase 3 onward and the suite meets it
+# today. The gate sits a little below so a single uncovered line does not turn CI
+# red — that pressure produces tests written for the number rather than for the
+# behaviour. Raise it as coverage rises; it must never be lowered to make a
+# change pass.
+fail_under = 93
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
