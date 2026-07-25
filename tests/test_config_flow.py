@@ -12,6 +12,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
+from custom_components.topology.config_flow_handler.config_flow import TopologyConfigFlowHandler
+from custom_components.topology.config_flow_handler.handler import (
+    TopologyConfigFlowHandler as ReexportedConfigFlowHandler,
+)
 from custom_components.topology.const import (
     CONFIG_ENTRY_MINOR_VERSION,
     CONFIG_ENTRY_VERSION,
@@ -223,3 +227,8 @@ async def test_unload_entry_clean(hass: HomeAssistant, setup_integration: MockCo
     assert await hass.config_entries.async_setup(setup_integration.entry_id)
     await hass.async_block_till_done()
     assert setup_integration.state is ConfigEntryState.LOADED
+
+
+def test_handler_module_reexports_config_flow() -> None:
+    """The ``config_flow_handler.handler`` backward-compat wrapper re-exports the real class."""
+    assert ReexportedConfigFlowHandler is TopologyConfigFlowHandler
