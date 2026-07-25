@@ -1,0 +1,149 @@
+blueprint:
+  name: "Topology: close the sun-side covers before sunset"
+  description: |-
+    Close the covers in the areas whose glazed openings face the setting sun, and skip any area that currently
+    has a perimeter opening standing open.
+
+    **Read this before using it — Topology cannot pick the areas for you.** A connection's cardinal `side`
+    (`N`/`E`/`S`/`W`) and its `glazed` flag are deliberately not projected onto labels and not exposed as an
+    entity attribute, so no template and no blueprint can reach them. They live only on the
+    `topology/connections_facing_outdoor` WebSocket command, which a blueprint cannot call. So you run that
+    query **once** and paste the result into the `Sun-side areas` input below. From the browser console, with
+    the Home Assistant UI open:
+
+    ```js
+    const conn = (await window.hassConnection).conn;
+    const { connections } = await conn.sendMessagePromise({ type: "topology/connections_facing_outdoor" });
+    console.log([...new Set(connections.filter((c) => c.side === "W" && c.glazed).map((c) => c.area_id))]);
+    ```
+
+    Use `"E"` and a sunrise trigger for the morning side. Re-run the query after you add or move a window.
+
+    **What Topology does contribute at runtime:** the open/closed guard. Closing a cover over a terrace door
+    somebody just walked through is the classic failure of this automation, and
+    `binary_sensor.topology_perimeter_open` knows which areas have an opening standing open — including
+    openings you never listed here, because the perimeter is derived from the trust delta rather than
+    hand-maintained.
+  domain: automation
+  author: jpawlowski
+  source_url: >-
+    https://github.com/jpawlowski/hass.topology/blob/main/blueprints/automation/topology/sun_side_covers.yaml
+  homeassistant:
+    min_version: 2026.7.0
+  input:
+    geometry:
+      name: Which side of the house
+      icon: mdi:weather-sunset-down
+      input:
+        sun_side_areas:
+          name: Sun-side areas
+          description: >-
+            The areas whose glazed openings face the setting sun, obtained from the
+            `topology/connections_facing_outdoor` query above. Every cover in these areas is closed.
+          selector:
+            area:
+              multiple: true
+        excluded_covers:
+          name: Covers to leave alone
+          description: >-
+            Individual covers inside those areas that should never be moved by this automation — a skylight, a
+            garage door, an awning you control separately.
+          default: []
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: cover
+    timing:
+      name: When to run
+      icon: mdi:clock-outline
+      input:
+        sunset_offset:
+          name: Offset from sunset
+          description: >-
+            A negative offset runs before sunset, a positive one after. Format `HH:MM:SS`, for example
+            `-00:45:00` for three quarters of an hour before sunset.
+          default: "-00:30:00"
+          selector:
+            text:
+    behavior:
+      name: Behavior
+      icon: mdi:tune
+      collapsed: true
+      input:
+        target_position:
+          name: Target position
+          description: >-
+            `0` fully closes the covers with `cover.close_cover`. Any other value sets that position instead,
+            which needs covers that support positioning.
+          default: 0
+          selector:
+            number:
+              min: 0
+              max: 100
+              step: 5
+              unit_of_measurement: "%"
+              mode: slider
+        skip_open_areas:
+          name: Skip areas with an open perimeter opening
+          description: >-
+            Leave enabled to skip any area listed in the `open_connections` attribute of
+            `binary_sensor.topology_perimeter_open` — somebody is on the terrace, or a window is open there.
+          default: true
+          selector:
+            boolean:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: sun
+    event: sunset
+    offset: !input sunset_offset
+
+actions:
+  - alias: "Find the areas Topology reports as open right now"
+    variables:
+      topology_open_areas: >-
+        {% if skip_open_areas %}
+          {{ (state_attr('binary_sensor.topology_perimeter_open', 'open_connections') or [])
+             | map(attribute='area_id') | unique | list }}
+        {% else %}
+          {{ [] }}
+        {% endif %}
+  - alias: "Collect the covers to move"
+    variables:
+      topology_covers: >-
+        {{ sun_side_areas
+           | reject('in', topology_open_areas)
+           | map('area_entities') | sum(start=[])
+           | select('match', 'cover\\.')
+           | reject('in', excluded_covers)
+           | unique | list }}
+  - alias: "Move them, unless everything was skipped"
+    choose:
+      - alias: "Nothing left to move"
+        conditions:
+          - condition: template
+            value_template: "{{ topology_covers | count == 0 }}"
+        sequence:
+          - action: logbook.log
+            data:
+              name: Topology
+              message: >-
+                No sun-side covers to close — {{ sun_side_areas | count }} area(s) configured,
+                {{ topology_open_areas | count }} skipped for an open perimeter opening.
+      - alias: "Fully close"
+        conditions:
+          - condition: template
+            value_template: "{{ target_position | int(0) == 0 }}"
+        sequence:
+          - action: cover.close_cover
+            target:
+              entity_id: "{{ topology_covers }}"
+    default:
+      - action: cover.set_cover_position
+        target:
+          entity_id: "{{ topology_covers }}"
+        data:
+          position: !input target_position

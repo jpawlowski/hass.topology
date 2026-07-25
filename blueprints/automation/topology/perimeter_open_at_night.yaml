@@ -1,0 +1,130 @@
+blueprint:
+  name: "Topology: perimeter opened at night"
+  description: |-
+    Notify when the derived perimeter opens inside a time window.
+
+    Topology derives the perimeter from the **trust delta** between the two sides of every connection, so
+    `binary_sensor.topology_perimeter_open` already aggregates every door and window that leaves your secure
+    envelope. There is no sensor list to maintain here: bind a `binary_sensor` to a connection in the Topology
+    panel and it joins this automation automatically.
+
+    **Requires:** the Topology integration configured, and at least one perimeter connection with a bound
+    `binary_sensor`. Check the `monitored_count` attribute of `binary_sensor.topology_perimeter_open` — if it
+    is `0`, nothing is being watched yet and this automation can never fire.
+
+    **Variables available to your notification actions:**
+
+    - `topology_message` — a ready-made one-line summary
+    - `topology_open_count` — how many monitored perimeter openings are open
+    - `topology_open_areas` — the area names behind them, deduplicated
+    - `topology_open_entities` — the bound `binary_sensor` entity ids that read open
+    - `topology_unavailable_sensors` — bound sensors that are not reporting (a dead battery hides an opening)
+  domain: automation
+  author: jpawlowski
+  source_url: >-
+    https://github.com/jpawlowski/hass.topology/blob/main/blueprints/automation/topology/perimeter_open_at_night.yaml
+  homeassistant:
+    min_version: 2026.7.0
+  input:
+    notification:
+      name: Notification
+      icon: mdi:bell-ring-outline
+      description: What should happen when a perimeter opening is found open.
+      input:
+        notify_actions:
+          name: Notification actions
+          description: >-
+            Run one or more actions — a mobile push, a TTS announcement, a persistent notification. Use the
+            `topology_message` variable (or the individual `topology_*` variables listed above) for the text.
+          selector:
+            action:
+    window:
+      name: Time window
+      icon: mdi:clock-outline
+      description: >-
+        Only notify between these two times. The window may cross midnight — a start of `22:00:00` and an end
+        of `06:00:00` covers the night, as expected.
+      input:
+        window_start:
+          name: Window start
+          default: "22:00:00"
+          selector:
+            time:
+        window_end:
+          name: Window end
+          default: "06:00:00"
+          selector:
+            time:
+    timing:
+      name: Timing
+      icon: mdi:timer-sand
+      collapsed: true
+      input:
+        grace_period:
+          name: Grace period
+          description: >-
+            How long the perimeter has to stay open before notifying. Leave at zero to notify immediately; a
+            minute or two suppresses the "stepped out to the bin" case.
+          default:
+            hours: 0
+            minutes: 0
+            seconds: 0
+          selector:
+            duration:
+        only_when_fully_monitored:
+          name: Skip when sensors are missing
+          description: >-
+            When enabled, the notification is skipped while any bound perimeter sensor is unavailable, because
+            the aggregate cannot be trusted then. Leave off to be notified anyway.
+          default: false
+          selector:
+            boolean:
+
+mode: single
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: binary_sensor.topology_perimeter_open
+    from: "off"
+    to: "on"
+    for: !input grace_period
+
+conditions:
+  - condition: time
+    after: !input window_start
+    before: !input window_end
+  - condition: state
+    entity_id: binary_sensor.topology_perimeter_open
+    state: "on"
+  - condition: template
+    alias: "Skip while bound sensors are unavailable, if requested"
+    value_template: >-
+      {% if only_when_fully_monitored %}
+        {{ (state_attr('binary_sensor.topology_perimeter_open', 'unavailable_sensors') or []) | count == 0 }}
+      {% else %}
+        true
+      {% endif %}
+
+actions:
+  - alias: "Read the open perimeter openings from the aggregate attributes"
+    variables:
+      topology_open_connections: >-
+        {{ state_attr('binary_sensor.topology_perimeter_open', 'open_connections') or [] }}
+      topology_open_count: >-
+        {{ state_attr('binary_sensor.topology_perimeter_open', 'open_count') or 0 }}
+      topology_unavailable_sensors: >-
+        {{ state_attr('binary_sensor.topology_perimeter_open', 'unavailable_sensors') or [] }}
+  - alias: "Turn the raw attribute data into names"
+    variables:
+      topology_open_areas: >-
+        {{ topology_open_connections | map(attribute='area_id') | unique | map('area_name') | select() | list }}
+      topology_open_entities: >-
+        {{ topology_open_connections | map(attribute='source_entity') | unique | list }}
+  - alias: "Build the summary line"
+    variables:
+      topology_message: >-
+        {{ topology_open_count }} perimeter opening(s) open:
+        {{ topology_open_areas | join(', ') if topology_open_areas else 'unknown area' }}
+  - alias: "Run the configured notification actions"
+    sequence: !input notify_actions
