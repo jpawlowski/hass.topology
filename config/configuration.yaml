@@ -54,11 +54,16 @@ frontend:
   # Optional: Enable custom themes
   # themes: !include_dir_merge_named themes
 
-automation:
+# Split-config includes, as a stock Home Assistant has them. Without them the
+# automation/script/scene editors write their YAML file and Home Assistant never
+# reads it back — which silently breaks the one workflow that matters here:
+# importing a blueprint from blueprints/automation/topology/ and creating an
+# automation from it. script/develop seeds the three files when they are missing.
+automation: !include automations.yaml
 
-script:
+script: !include scripts.yaml
 
-scene:
+scene: !include scenes.yaml
 
 # Useful default_config integrations for development
 # https://www.home-assistant.io/integrations/history/

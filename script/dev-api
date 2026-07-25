@@ -1,0 +1,169 @@
+#!/bin/bash
+
+# script/dev-api: Talk to the local development Home Assistant instance
+#
+# The scripted way to call a service action, read a state, or send a WebSocket
+# command against the instance ./script/develop starts. It exists so agents and
+# humans use one reviewed path instead of hand-rolling curl with a token — the
+# same reason every other task in this repo has a script.
+#
+# Authentication uses a long-lived access token from HA_TOKEN. It deliberately
+# does NOT read config/.storage/auth: harvesting a refresh token out of the auth
+# store is indistinguishable from credential theft, so the token is one you mint
+# on purpose and keep in a gitignored file.
+#
+# One-time setup:
+#   1. Open http://127.0.0.1:8123 -> your profile -> Security tab
+#      -> "Long-lived access tokens" -> Create Token.
+#   2. Put it in .devcontainer/.env.local (gitignored):
+#          HA_TOKEN=eyJhbGciOi...
+#      Copy .devcontainer/.env.local.example first if you have no such file.
+#   3. Open a new shell, or: source .devcontainer/_load_env.sh
+#
+# Usage:
+#   ./script/dev-api call <domain> <service> [json]   Call a service action
+#   ./script/dev-api read <domain> <service> [json]   Call one that returns a response
+#   ./script/dev-api state <entity_id>                Read one entity's state
+#   ./script/dev-api states                           Read every state
+#   ./script/dev-api template <jinja>                 Render a template
+#   ./script/dev-api ws <json>                        Send one WebSocket command
+#   ./script/dev-api raw <method> <path> [json]       Anything else on the REST API
+#
+# Examples:
+#   ./script/dev-api read topology get_health
+#   ./script/dev-api read topology get_path '{"from_area":"kitchen","to_area":"studio"}'
+#   ./script/dev-api call topology declare_connection \
+#       '{"area_a":"stairway","area_b":"bathroom","preset":"open_stair"}'
+#   ./script/dev-api state binary_sensor.topology_perimeter_open
+#   ./script/dev-api ws '{"type":"topology/read_hook"}'
+#
+# Output is raw JSON on stdout, so it pipes into jq.
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+cd "$SCRIPT_DIR/.."
+
+# shellcheck source=script/.lib/output.sh
+source "$SCRIPT_DIR/.lib/output.sh"
+
+usage() {
+    sed -n '3,41p' "$0" | sed 's/^# \{0,1\}//'
+}
+
+# .env / .env.local are sourced by the shell profile, but a non-interactive
+# shell (an agent's, a CI job's) never runs that — so read them here too. This
+# runs before HA_URL is resolved, or an HA_URL set only in .env.local would lose
+# to the default below.
+load_env() {
+    if [[ -f .devcontainer/_load_env.sh ]]; then
+        # shellcheck source=/dev/null
+        source .devcontainer/_load_env.sh
+    fi
+    HA_URL="${HA_URL:-http://127.0.0.1:8123}"
+}
+
+require_token() {
+    if [[ -z "${HA_TOKEN:-}" ]]; then
+        log_error "HA_TOKEN is not set."
+        printf "\n"
+        printf "Create a long-lived access token in Home Assistant (profile -> Security),\n"
+        printf "then add it to .devcontainer/.env.local (gitignored):\n\n"
+        printf "    HA_TOKEN=eyJhbGciOi...\n\n"
+        printf "See the comment block at the top of %s.\n" "$0"
+        exit 1
+    fi
+}
+
+require_running() {
+    if ! curl -sf -o /dev/null --max-time 5 "$HA_URL/"; then
+        log_error "No Home Assistant answering at $HA_URL — start it with ./script/develop"
+        exit 1
+    fi
+}
+
+# api <METHOD> <PATH> [BODY]
+api() {
+    local method="$1" path="$2" body="${3:-}"
+    local args=(-sS -X "$method" -H "Authorization: Bearer $HA_TOKEN")
+    if [[ -n "$body" ]]; then
+        args+=(-H "Content-Type: application/json" -d "$body")
+    fi
+    curl "${args[@]}" "$HA_URL$path"
+}
+
+# Send one WebSocket command and print its result. Python does the socket work;
+# the shell has no sane way to speak the framing protocol.
+ws_command() {
+    local payload="$1"
+    HA_URL="$HA_URL" HA_TOKEN="$HA_TOKEN" WS_PAYLOAD="$payload" .venv/bin/python - <<'PY'
+import asyncio
+import json
+import os
+import sys
+
+import aiohttp
+
+
+async def main() -> None:
+    url = os.environ["HA_URL"].replace("http://", "ws://").replace("https://", "wss://")
+    payload = json.loads(os.environ["WS_PAYLOAD"])
+    async with aiohttp.ClientSession() as session, session.ws_connect(f"{url}/api/websocket") as ws:
+        await ws.receive_json()  # auth_required
+        await ws.send_json({"type": "auth", "access_token": os.environ["HA_TOKEN"]})
+        auth = await ws.receive_json()
+        if auth.get("type") != "auth_ok":
+            print(json.dumps(auth), file=sys.stderr)
+            raise SystemExit(1)
+        await ws.send_json({"id": 1, **payload})
+        print(json.dumps(await ws.receive_json(), indent=2))
+
+
+asyncio.run(main())
+PY
+}
+
+main() {
+    local command="${1:-}"
+    [[ -z "$command" || "$command" == "-h" || "$command" == "--help" ]] && {
+        usage
+        exit 0
+    }
+    shift
+
+    load_env
+    require_token
+    require_running
+
+    case "$command" in
+    call)
+        api POST "/api/services/$1/$2" "${3:-{\}}"
+        ;;
+    read)
+        api POST "/api/services/$1/$2?return_response" "${3:-{\}}"
+        ;;
+    state)
+        api GET "/api/states/$1"
+        ;;
+    states)
+        api GET "/api/states"
+        ;;
+    template)
+        api POST "/api/template" "$(jq -n --arg t "$1" '{template: $t}')"
+        ;;
+    ws)
+        ws_command "$1"
+        ;;
+    raw)
+        api "$1" "$2" "${3:-}"
+        ;;
+    *)
+        log_error "Unknown command: $command"
+        usage
+        exit 1
+        ;;
+    esac
+    printf "\n"
+}
+
+main "$@"

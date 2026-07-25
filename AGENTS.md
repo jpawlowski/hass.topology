@@ -70,6 +70,19 @@ pkill -f "hass --config" || true && pkill -f "debugpy.*5678" || true && ./script
 
 **When to restart:** After modifying Python files, `manifest.json`, `services.yaml`, translations, or config flow changes
 
+**Talk to the running instance:**
+
+```bash
+./script/dev-api read topology get_health          # a response-returning action
+./script/dev-api call topology annotate_area '{"area_id":"kitchen","type":"kitchen"}'
+./script/dev-api state binary_sensor.topology_perimeter_open
+./script/dev-api ws '{"type":"topology/read_hook"}'
+```
+
+This is how a derivation or WS-contract change gets checked against a live instance rather than only against tests. It needs `HA_TOKEN` — a **long-lived access token** you mint in the HA profile UI and put in `.devcontainer/.env.local` (gitignored); `./script/dev-api` prints the setup steps when it is missing.
+
+**Never read `config/.storage/auth` to obtain credentials.** Extracting a refresh token from the auth store and exchanging it is indistinguishable from credential theft, and agent sandboxes correctly refuse it. The long-lived token exists so there is a path the developer granted on purpose.
+
 **Reading logs:**
 
 - Live: Terminal where `./script/develop` runs
