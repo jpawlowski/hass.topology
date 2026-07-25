@@ -1,25 +1,14 @@
-# Copilot Coding Agent Setup
-#
-# This workflow configures the environment for GitHub Copilot coding agent.
-# It runs automatically before Copilot starts working on any task.
-#
-# Documentation:
-# - https://docs.github.com/en/copilot/how-tos/use-copilot-agents/coding-agent/customize-the-agent-environment
-# - https://github.blog/changelog/2025-07-30-copilot-coding-agent-custom-setup-steps-are-more-reliable-and-easier-to-debug/
-
-name: "Copilot Setup Steps"
+name: Test
 
 on:
-  workflow_dispatch:
   push:
-    paths:
-      - .github/workflows/copilot-setup-steps.yml
+    branches:
+      - "main"
   pull_request:
-    paths:
-      - .github/workflows/copilot-setup-steps.yml
+    branches:
+      - "main"
 
-permissions:
-  contents: read
+permissions: {}
 
 # IMPORTANT: Keep HA_VERSION synchronized across all workflow files:
 # - copilot-setup-steps.yml
@@ -28,11 +17,11 @@ permissions:
 # - validate.yml (if added in the future)
 
 jobs:
-  copilot-setup-steps:
-    runs-on: ubuntu-latest
-
+  pytest:
+    name: "Type-check + pytest (coverage >= 95%)"
+    runs-on: "ubuntu-latest"
     steps:
-      - name: Checkout repository
+      - name: Checkout the repository
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
 
       - name: Set up Python
@@ -62,6 +51,13 @@ jobs:
           key: ha-venv-${{ runner.os }}-py314-ha${{ steps.ha_version.outputs.HA_VERSION }}-${{ hashFiles('**/requirements*.txt') }}
           restore-keys: |
             ha-venv-${{ runner.os }}-py314-ha${{ steps.ha_version.outputs.HA_VERSION }}-
+            ha-venv-${{ runner.os }}-py314-
 
-      - name: Install dependencies
+      - name: Install requirements
         run: script/setup/bootstrap
+
+      - name: Type-check (Pyright)
+        run: script/type-check
+
+      - name: Test with coverage gate (Silver test-coverage, PLAN-topology-phase3.md)
+        run: script/test --cov --cov-fail-under=95
