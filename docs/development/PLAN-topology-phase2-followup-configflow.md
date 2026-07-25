@@ -305,7 +305,7 @@ not a cleanup** (D5):
 ```python
 # const.py
 CONFIG_ENTRY_VERSION = 1        # unchanged major — no data shape a v1 reader cannot handle
-CONFIG_ENTRY_MINOR_VERSION = 2  # S1: entry.data no longer read as config   (S2: 3)
+CONFIG_ENTRY_MINOR_VERSION = 2  # entry.data transferred to the store, then emptied
 LEGACY_CONF_KEYS: tuple[str, ...] = (
     CONF_OCCUPANCY_EXTENT, CONF_IMPORT_ALIASES, CONF_IMPORT_LABELS,
     CONF_PROJECT_ENVIRONMENT, CONF_PROJECT_TYPE, CONF_PROJECT_TRUST,
@@ -361,11 +361,11 @@ project_type=…, project_trust=…, unannotated_repair_threshold=…)`.
 6. **Bump the entry**:
    `hass.config_entries.async_update_entry(entry, data=<see below>, minor_version=CONFIG_ENTRY_MINOR_VERSION)`
    (`@callback`, keyword-only, verified in Appendix A.2).
-   - **S1:** `data` is passed **unchanged** (the legacy keys stay, §2.4/D8).
-     Since `async_update_entry` compares before writing, passing the same mapping
-     changes only `minor_version`.
-   - **S2:** `data={k: v for k, v in entry.data.items() if k not in LEGACY_CONF_KEYS}`
-     — in practice `{}` — with `minor_version=3`.
+   Amended 2026-07-25 (D8): `data={k: v for k, v in entry.data.items() if k not in LEGACY_CONF_KEYS}`
+   — in practice `{}` — dropped in the **same** call that sets
+   `minor_version=CONFIG_ENTRY_MINOR_VERSION`. One update, one write. (The
+   two-stage variant, which passed `data` unchanged here and cleared it in a
+   later `minor_version=3` migration, is not what ships, §3.5.)
 7. `return True`.
 
 **Precedence during the transfer: `entry.data` wins** (D7). That is not a
@@ -384,7 +384,9 @@ a user sees at the upgrade instant, in the rare case where the two disagree.)
 - **Retry-safe.** The version bump happens **only after** a successful store
   save. Any failure path leaves the entry at the old minor version with
   `entry.data` intact, so the next load simply retries. There is no
-  half-migrated state: the two data copies are both complete throughout S1.
+  half-migrated state: until the bump both copies are complete, and after it the
+  store is the only copy — the transition between the two is a single
+  `async_update_entry` call that happens after the store save returned.
 - **No marker in the store.** The store schema is frozen with
   `additionalProperties: false` (Phase-2 §2.2); a `migrated_at`-style field would
   be a store-schema change. The config entry's `minor_version` is the marker.
@@ -397,20 +399,21 @@ a user sees at the upgrade instant, in the rare case where the two disagree.)
 
 ### 3.4 Downgrade behavior
 
-| Case                                                                      | Handled by                                          | Result                                                                                                                                                                                            |
-| ------------------------------------------------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Entry `version` 2 on code with `VERSION` 1                                | **HA core** (`ConfigEntry.async_migrate`, A.1)      | Error logged, `MIGRATION_ERROR`, our hook is never called. Cannot occur here (no major bump).                                                                                                     |
-| Entry `minor_version` 3 on code with `MINOR_VERSION` 2 (S2 → S1 rollback) | **our hook**, step 1                                | `return False` → `MIGRATION_ERROR` (not recoverable; user restores a backup or upgrades again).                                                                                                   |
-| Entry `minor_version` 2 on the **pre-slim** version (S1 → today's code)   | nothing — the old code has no `async_migrate_entry` | Core's `if not supports_migrate and same_major_version: return True` (verified, A.1) — the entry loads, and the old code finds the legacy keys still in `entry.data` (that is what S1 preserves). |
+| Case                                                                            | Handled by                                          | Result                                                                                                                                                                                         |
+| ------------------------------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Entry `version` 2 on code with `VERSION` 1                                      | **HA core** (`ConfigEntry.async_migrate`, A.1)      | Error logged, `MIGRATION_ERROR`, our hook is never called. Cannot occur here (no major bump).                                                                                                  |
+| Entry `minor_version` > 2 on code with `MINOR_VERSION` 2 (a future rollback)    | **our hook**, step 1                                | `return False` → `MIGRATION_ERROR` (not recoverable; user restores a backup or upgrades again).                                                                                                |
+| Entry `minor_version` 2 on the **pre-slim** version (rollback past this change) | nothing — the old code has no `async_migrate_entry` | Core's `if not supports_migrate and same_major_version: return True` (verified, A.1) — the entry loads, but `entry.data` is now empty, so the old reconfigure form shows defaults (§3.5 risk). |
 
-The middle row is the strict choice (D11): a higher **minor** version is
-backwards-compatible by HA's own definition, so returning `True` and simply
-proceeding would also work in S1 (the legacy keys are still there). The
-recommendation is the documented HA idiom — an explicit, visible, testable
-rejection — because after S2 the keys are gone and a tolerant `True` would mean
-the older code silently reconfigures the store from an empty `entry.data`.
-Recorded counter-argument: strictness costs an unrecoverable `MIGRATION_ERROR`
-where a warning would have sufficed during S1.
+The middle row is the strict choice (D11, unchanged by the 2026-07-25
+amendment): a higher **minor** version is backwards-compatible by HA's own
+definition, so returning `True` and proceeding would be defensible in principle.
+The decision is the documented HA idiom — an explicit, visible, testable
+rejection — and with the window collapsed it is no longer merely stricter than
+necessary: the legacy keys are gone from the moment this change lands, so a
+tolerant `True` would mean older code silently reconfiguring the store from an
+empty `entry.data`. Recorded counter-argument: strictness costs an unrecoverable
+`MIGRATION_ERROR` where a warning might have sufficed.
 
 ### 3.5 Deprecation window — collapsed (amended 2026-07-25)
 
@@ -456,8 +459,9 @@ that warning; the ratification of §9 is that approval. Concretely:
   already reachable via the tile's "Configure" thanks to Phase-7
   `config_panel_domain`) and, for the imports, the panel first-run card plus the
   existing `topology.import_from_core` service.
-- **What is preserved:** every stored value, via §3.2, plus the legacy copy
-  through S1.
+- **What is preserved:** every stored value, via §3.2 — the store is written and
+  flushed before a single legacy key is removed. (Amended 2026-07-25: the legacy
+  copy in `entry.data` is _not_ preserved past the migration, §3.5.)
 - **Commit/PR:** the implementation commit carries a
   `BREAKING CHANGE: the config flow no longer collects home settings; they are
 edited in the Topology panel and migrated automatically (config entry
@@ -661,7 +665,7 @@ graph TD
     C1[c1: const.py — CONFIG_ENTRY_VERSION/MINOR + LEGACY_CONF_KEYS, decouple from STORAGE_VERSION] --> C2[c2: config_flow.py + schemas/config.py — confirm-only user + reconfigure]
     C1 --> C3[c3: __init__.py — async_migrate_entry, transfer + flush + bump]
     C3 --> C4[c4: __init__.py — remove the entry.data to store apply from async_setup_entry]
-    C4 --> C5[c5: websocket_api.py — rewrite the mirror comment, keep write-only S1]
+    C4 --> C5[c5: websocket_api.py — delete the mirror, its call site, and its CONF imports]
     C2 --> C6[c6: translations/en.json — drop dead keys, reword descriptions]
     F1[f1: ha.ts callService + i18n strings] --> F2[f2: editors/first-run.ts — per-source opt-in card]
     F2 --> F3[f3: topology-panel.ts wiring]
