@@ -17,6 +17,7 @@ from custom_components.topology.const import (
     DOMAIN,
     ISSUE_CONTRADICTORY_BEARINGS,
     ISSUE_DEEP_LINKS,
+    ISSUE_EDGES_SPANNING_FLOORS,
     ISSUE_EXTERIOR_NON_OUTDOOR,
     ISSUE_INDOOR_WITHOUT_FLOOR,
     ISSUE_ISOLATED_AREAS,
@@ -24,6 +25,7 @@ from custom_components.topology.const import (
     ISSUE_STORE_FUTURE_VERSION,
     ISSUE_UNANNOTATED_THRESHOLD,
     ISSUE_UNKNOWN_ENUM,
+    ISSUE_VERTICAL_WITHOUT_PASSAGE,
     LEARN_MORE_URL,
     PANEL_URL_PATH,
     STORAGE_KEY,
@@ -180,7 +182,9 @@ async def test_deep_link_ids_unchanged(
         assert issue.severity == ir.IssueSeverity.WARNING
         assert issue.is_fixable is False
 
-    # Deep-linked ids are exactly the five reactive cards + the orphan card.
+    # Deep-linked ids are the reactive cards + the orphan card. The two
+    # edge-geometry advisories share one scope: it lists the flagged edges, and
+    # either is resolved from there or by fixing a floor assignment.
     assert set(ISSUE_DEEP_LINKS) == {
         ISSUE_UNANNOTATED_THRESHOLD,
         ISSUE_ISOLATED_AREAS,
@@ -188,4 +192,8 @@ async def test_deep_link_ids_unchanged(
         ISSUE_CONTRADICTORY_BEARINGS,
         ISSUE_EXTERIOR_NON_OUTDOOR,
         ISSUE_ORPHANED_ENTRIES,
+        ISSUE_EDGES_SPANNING_FLOORS,
+        ISSUE_VERTICAL_WITHOUT_PASSAGE,
     }
+    assert ISSUE_DEEP_LINKS[ISSUE_EDGES_SPANNING_FLOORS].endswith("?focus=geometry")
+    assert ISSUE_DEEP_LINKS[ISSUE_VERTICAL_WITHOUT_PASSAGE].endswith("?focus=geometry")

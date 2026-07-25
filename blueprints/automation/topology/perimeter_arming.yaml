@@ -1,0 +1,234 @@
+blueprint:
+  name: "Topology: arm the alarm from the derived perimeter"
+  description: |-
+    Arm an alarm panel when everybody leaves, but only once the derived perimeter is closed — and say which room
+    is holding it open when it is not.
+
+    This replaces the "list every door and window sensor by hand" pattern that alarm setups (Alarmo and the
+    Manual panel included) otherwise need. Topology derives the perimeter from the **trust delta** between the
+    two sides of each connection, so `binary_sensor.topology_perimeter_open` is `on` whenever any perimeter
+    connection with a bound `binary_sensor` reads open. Add a window in the Topology panel and it is covered
+    here immediately; there is no list in this automation to keep in sync.
+
+    The alarm panel keeps owning its own zones and delay times. This blueprint only decides *whether it is safe
+    to arm right now*, waits a while if it is not, and reports what is open.
+
+    **Requires:** the Topology integration configured, and perimeter connections with bound `binary_sensor`
+    entities. `monitored_count` on `binary_sensor.topology_perimeter_open` tells you how many are bound; with
+    `0` bound sensors the aggregate is silent and cannot verify anything, which is what the *Refuse to arm
+    unverified* option below is about.
+
+    **Variables available to your notification actions:**
+
+    - `topology_message` — a ready-made "cannot arm, still open" line
+    - `topology_open_count` / `topology_monitored_count` — open and monitored opening counts
+    - `topology_open_areas` — the area names holding the perimeter open
+    - `topology_open_entities` — the bound `binary_sensor` entity ids that read open
+  domain: automation
+  author: jpawlowski
+  source_url: >-
+    https://github.com/jpawlowski/hass.topology/blob/main/blueprints/automation/topology/perimeter_arming.yaml
+  homeassistant:
+    min_version: 2026.7.0
+  input:
+    trigger:
+      name: When to arm
+      icon: mdi:home-export-outline
+      input:
+        presence_entity:
+          name: Presence entity
+          description: >-
+            The entity that says the home is empty — a `person`, a `group` of people, a `device_tracker`, or an
+            `input_boolean` you flip yourself.
+          selector:
+            entity:
+              filter:
+                - domain: person
+                - domain: group
+                - domain: device_tracker
+                - domain: input_boolean
+                - domain: binary_sensor
+        away_state:
+          name: Away state
+          description: >-
+            The state of that entity that means "arm now". `not_home` for a person, group, or device tracker;
+            `on` for an `input_boolean` or a `binary_sensor`.
+          default: not_home
+          selector:
+            text:
+        leave_delay:
+          name: Leave delay
+          description: >-
+            How long the away state has to hold before arming starts, so a brief GPS glitch does not arm the
+            house.
+          default:
+            hours: 0
+            minutes: 2
+            seconds: 0
+          selector:
+            duration:
+    alarm:
+      name: Alarm panel
+      icon: mdi:shield-home-outline
+      input:
+        alarm_panel:
+          name: Alarm panel
+          selector:
+            entity:
+              filter:
+                - domain: alarm_control_panel
+        arm_mode:
+          name: Arming mode
+          default: arm_away
+          selector:
+            select:
+              mode: dropdown
+              options:
+                - label: Away
+                  value: arm_away
+                - label: Home
+                  value: arm_home
+                - label: Night
+                  value: arm_night
+                - label: Vacation
+                  value: arm_vacation
+        alarm_code:
+          name: Alarm code
+          description: >-
+            Only if your panel requires a code to arm. Leave empty and no code is sent at all.
+          default: ""
+          selector:
+            text:
+              type: password
+    perimeter:
+      name: Perimeter gate
+      icon: mdi:door-open
+      input:
+        close_wait_timeout:
+          name: Wait for the perimeter to close
+          description: >-
+            How long to keep waiting for the last opening to be closed before giving up. Set to zero to decide
+            immediately.
+          default:
+            hours: 0
+            minutes: 1
+            seconds: 30
+          selector:
+            duration:
+        force_arm_after_timeout:
+          name: Arm anyway when the wait runs out
+          description: >-
+            Off (recommended) reports what is open and leaves the panel disarmed. On arms regardless, which is
+            what you want if the panel itself handles open zones on arming.
+          default: false
+          selector:
+            boolean:
+        require_monitored_sensors:
+          name: Refuse to arm unverified
+          description: >-
+            Leave enabled to refuse arming when `monitored_count` is `0` — nothing is bound, so Topology cannot
+            confirm the house is closed. Disable it if you deliberately arm without door sensors.
+          default: true
+          selector:
+            boolean:
+    notification:
+      name: Notification
+      icon: mdi:bell-alert-outline
+      collapsed: true
+      input:
+        notify_actions:
+          name: Actions when arming is blocked
+          description: >-
+            Run when the perimeter is still open, or when nothing is monitored. Use `topology_message` for the
+            text. Leave empty for no notification at all.
+          default: []
+          selector:
+            action:
+
+mode: restart
+max_exceeded: silent
+
+triggers:
+  - trigger: state
+    entity_id: !input presence_entity
+    to: !input away_state
+    for: !input leave_delay
+
+actions:
+  - alias: "Read the perimeter aggregate"
+    variables:
+      topology_monitored_count: >-
+        {{ state_attr('binary_sensor.topology_perimeter_open', 'monitored_count') or 0 }}
+  - alias: "Refuse to arm when nothing is monitored"
+    if:
+      - condition: template
+        value_template: >-
+          {{ require_monitored_sensors and topology_monitored_count | int(0) == 0 }}
+    then:
+      - alias: "Report that the perimeter cannot be verified"
+        variables:
+          topology_open_count: 0
+          topology_open_areas: []
+          topology_open_entities: []
+          topology_message: >-
+            Not arming: Topology has no perimeter sensor bound, so the house cannot be verified as closed.
+      - sequence: !input notify_actions
+      - stop: "No monitored perimeter openings"
+  - alias: "Give the last opening a chance to close"
+    if:
+      - condition: state
+        entity_id: binary_sensor.topology_perimeter_open
+        state: "on"
+    then:
+      - wait_for_trigger:
+          - trigger: state
+            entity_id: binary_sensor.topology_perimeter_open
+            to: "off"
+        timeout: !input close_wait_timeout
+        continue_on_timeout: true
+  - alias: "Decide, and report what is still open"
+    if:
+      - condition: state
+        entity_id: binary_sensor.topology_perimeter_open
+        state: "on"
+    then:
+      - alias: "Describe what is holding the perimeter open"
+        variables:
+          topology_open_connections: >-
+            {{ state_attr('binary_sensor.topology_perimeter_open', 'open_connections') or [] }}
+          topology_open_count: >-
+            {{ state_attr('binary_sensor.topology_perimeter_open', 'open_count') or 0 }}
+      - alias: "Turn it into names"
+        variables:
+          topology_open_areas: >-
+            {{ topology_open_connections | map(attribute='area_id') | unique | map('area_name')
+               | select() | list }}
+          topology_open_entities: >-
+            {{ topology_open_connections | map(attribute='source_entity') | unique | list }}
+          topology_message: >-
+            {{ 'Arming anyway' if force_arm_after_timeout else 'Not arming' }}:
+            {{ topology_open_count }} of {{ topology_monitored_count }} monitored perimeter opening(s)
+            still open in {{ topology_open_areas | join(', ') if topology_open_areas else 'an unnamed area' }}.
+      - sequence: !input notify_actions
+      - alias: "Stop unless the user asked to arm regardless"
+        if:
+          - condition: template
+            value_template: "{{ not force_arm_after_timeout }}"
+        then:
+          - stop: "Perimeter still open"
+  - alias: "Arm the panel"
+    choose:
+      - alias: "With a code"
+        conditions:
+          - condition: template
+            value_template: "{{ alarm_code | trim | length > 0 }}"
+        sequence:
+          - action: "alarm_control_panel.alarm_{{ arm_mode }}"
+            target:
+              entity_id: !input alarm_panel
+            data:
+              code: !input alarm_code
+    default:
+      - action: "alarm_control_panel.alarm_{{ arm_mode }}"
+        target:
+          entity_id: !input alarm_panel

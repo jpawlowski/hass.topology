@@ -20,9 +20,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Any, NotRequired, TypedDict
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from homeassistant.config_entries import ConfigEntry
 
     from .coordinator import TopologyCoordinator
@@ -106,6 +108,17 @@ _CARDINAL_ORDER: dict[CardinalSide, int] = {
     CardinalSide.W: 3,
 }
 
+# An interior edge's ``side`` is recorded from ``area_a``'s perspective; the far
+# area meets the same wall from the opposite bearing (master §1: "the two areas
+# carry opposite bearings"). Consumers that ask "which of MY sides does this
+# edge sit on" must mirror through this map for ``area_b``.
+OPPOSITE_SIDE: dict[CardinalSide, CardinalSide] = {
+    CardinalSide.N: CardinalSide.S,
+    CardinalSide.S: CardinalSide.N,
+    CardinalSide.E: CardinalSide.W,
+    CardinalSide.W: CardinalSide.E,
+}
+
 # Open catalog of area types (§3.1) — shipped defaults, any string is legal.
 AREA_TYPE_CATALOG: tuple[str, ...] = (
     "bedroom",
@@ -153,8 +166,23 @@ class ConnectionPreset(StrEnum):
     LIFT = "lift"
     LOFT_LADDER = "loft_ladder"
     RAMP = "ramp"
+    HATCH = "hatch"
     WINDOW = "window"
     OUTSIDE_DOOR = "outside_door"
+
+
+class PresetScope(StrEnum):
+    """Where a preset may be used (§3.9).
+
+    An interior preset describes a boundary between two modeled areas (an edge);
+    an exterior one describes an opening that leaves the home entirely (a window
+    or an outside door). ``passage``/``barrier`` cannot tell the two apart — an
+    interior door and an outside door expand identically — so the scope is
+    declared here and shipped to clients rather than guessed by them.
+    """
+
+    INTERIOR = "interior"
+    EXTERIOR = "exterior"
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -166,6 +194,7 @@ class PresetDefinition:
     barrier: Barrier
     glazed_default: bool
     sensor_allowed: bool
+    scope: PresetScope
 
 
 CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
@@ -175,6 +204,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.DOOR,
         glazed_default=False,
         sensor_allowed=True,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.OPEN_PASSAGE: PresetDefinition(
         preset=ConnectionPreset.OPEN_PASSAGE,
@@ -182,6 +212,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.OPEN,
         glazed_default=False,
         sensor_allowed=False,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.SHARED_WALL: PresetDefinition(
         preset=ConnectionPreset.SHARED_WALL,
@@ -189,6 +220,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.SOLID,
         glazed_default=False,
         sensor_allowed=False,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.OPEN_STAIR: PresetDefinition(
         preset=ConnectionPreset.OPEN_STAIR,
@@ -196,6 +228,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.OPEN,
         glazed_default=False,
         sensor_allowed=False,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.ENCLOSED_STAIR: PresetDefinition(
         preset=ConnectionPreset.ENCLOSED_STAIR,
@@ -203,6 +236,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.DOOR,
         glazed_default=False,
         sensor_allowed=True,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.LIFT: PresetDefinition(
         preset=ConnectionPreset.LIFT,
@@ -210,6 +244,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.DOOR,
         glazed_default=False,
         sensor_allowed=True,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.LOFT_LADDER: PresetDefinition(
         preset=ConnectionPreset.LOFT_LADDER,
@@ -217,6 +252,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.DOOR,
         glazed_default=False,
         sensor_allowed=True,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.RAMP: PresetDefinition(
         preset=ConnectionPreset.RAMP,
@@ -224,6 +260,18 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.OPEN,
         glazed_default=False,
         sensor_allowed=False,
+        scope=PresetScope.INTERIOR,
+    ),
+    # The only route to Passage.HATCH: without a preset the enum was reachable
+    # from no supported UI path at all (no panel control, and the services accept
+    # presets only).
+    ConnectionPreset.HATCH: PresetDefinition(
+        preset=ConnectionPreset.HATCH,
+        passage=Passage.HATCH,
+        barrier=Barrier.DOOR,
+        glazed_default=False,
+        sensor_allowed=True,
+        scope=PresetScope.INTERIOR,
     ),
     ConnectionPreset.WINDOW: PresetDefinition(
         preset=ConnectionPreset.WINDOW,
@@ -231,6 +279,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.DOOR,
         glazed_default=True,
         sensor_allowed=True,
+        scope=PresetScope.EXTERIOR,
     ),
     ConnectionPreset.OUTSIDE_DOOR: PresetDefinition(
         preset=ConnectionPreset.OUTSIDE_DOOR,
@@ -238,6 +287,7 @@ CONNECTION_PRESETS: dict[ConnectionPreset, PresetDefinition] = {
         barrier=Barrier.DOOR,
         glazed_default=False,
         sensor_allowed=True,
+        scope=PresetScope.EXTERIOR,
     ),
 }
 
@@ -474,6 +524,12 @@ class Neighbor:
     axis: str  # "horizontal" | "vertical" | "unknown"
     is_perimeter: bool
     traversable: bool
+    # Signed effective-level difference *from the queried area to this
+    # neighbour*: positive = the neighbour is above, negative = below, 0 = same
+    # storey, ``None`` = at least one side has no resolvable level. ``axis``
+    # alone cannot express direction, which callers need to render a section
+    # view or to constrain a neighbour pick to the adjacent storey.
+    level_delta: int | None
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -485,12 +541,25 @@ class GraphView:
 
 @dataclass(frozen=True, kw_only=True, slots=True)
 class ConsistencyReport:
-    """The four Phase-4 graph-consistency lists (§3), each sorted area_ids."""
+    """The graph-consistency lists (§3). Advisory only — nothing is ever rejected.
+
+    The first four hold sorted ``area_id``s; the two geometry lists hold sorted
+    ``edge_id``s, because an implausible edge is a property of the boundary, not
+    of either room.
+    """
 
     isolated_areas: tuple[str, ...]
     indoor_areas_without_floor: tuple[str, ...]
     contradictory_bearings: tuple[str, ...]
     exterior_on_non_outdoor_side: tuple[str, ...]
+    # Edges spanning more than one storey. A void, an atrium or a maisonette
+    # opening makes this legitimate, so it is a prompt to check the floor
+    # assignments, not an error.
+    edges_spanning_multiple_floors: tuple[str, ...]
+    # Edges between storeys whose every connection is step-free or walled off —
+    # nothing on them actually climbs, which usually means the wrong kind was
+    # picked (an interior door where a stair belongs).
+    vertical_edges_without_vertical_passage: tuple[str, ...]
 
 
 @dataclass(frozen=True, kw_only=True, slots=True)
@@ -755,8 +824,15 @@ def area_annotation_to_dict(annotation: AreaAnnotation, raw: AreaAnnotationDict 
     return out
 
 
-def home_config_from_dict(raw: HomeConfigDict) -> tuple[HomeConfig, list[UnknownEnumValue]]:
-    """Parse the store home_config into a ``HomeConfig`` (lenient on extent)."""
+def home_config_from_dict(raw: Mapping[str, Any]) -> tuple[HomeConfig, list[UnknownEnumValue]]:
+    """Parse the store home_config into a ``HomeConfig`` (lenient on extent).
+
+    Takes a plain mapping, not ``HomeConfigDict``: this reads a payload that came
+    off disk, so a key can be missing or hold anything, and the TypedDict states
+    the shape we *write* rather than a guarantee about what we find. Annotating
+    the strict shape here would make the defensive branches below look dead when
+    they are the only thing standing between a hand-edited store and a crash.
+    """
     unknowns: list[UnknownEnumValue] = []
 
     occupancy_extent = _coerce_enum(OccupancyExtent, raw.get("occupancy_extent"))
@@ -787,8 +863,12 @@ def home_config_from_dict(raw: HomeConfigDict) -> tuple[HomeConfig, list[Unknown
     return config, unknowns
 
 
-def home_config_to_dict(config: HomeConfig, raw: HomeConfigDict | None = None) -> HomeConfigDict:
-    """Serialize a ``HomeConfig`` to its store shape, re-emitting unknown extent."""
+def home_config_to_dict(config: HomeConfig, raw: Mapping[str, Any] | None = None) -> HomeConfigDict:
+    """Serialize a ``HomeConfig`` to its store shape, re-emitting unknown extent.
+
+    ``raw`` is the untrusted on-disk payload (see ``home_config_from_dict``), kept
+    so an out-of-catalog extent round-trips instead of being silently normalized.
+    """
     occupancy_extent = config.occupancy_extent.value
     if (
         raw is not None

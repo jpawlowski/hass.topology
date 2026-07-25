@@ -4,22 +4,34 @@
  * outside doors). `inline_trust` is allowed here and only here. No hard reject on
  * a non-outdoor side — the consistency overlay flags it instead (matches
  * Phase-2 §4.7). Panel-only.
+ *
+ * Only exterior-scoped presets are offered. The list used to include every
+ * preset, so `interior_door`, `lift` and `shared_wall` were on offer as
+ * "windows / outside doors"; the scope now comes from the shipped table.
+ *
+ * Each opening also needs its `side`: both derivations that give an exterior
+ * opening meaning (`connections_facing_outdoor` and the
+ * `exterior_on_non_outdoor_side` check) skip an opening whose side is unset, so
+ * a sideless one is stored but inert. The editor therefore says so rather than
+ * quietly accepting it.
  */
 
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
-import type { AreaOut, ConnectionOut, PresetOut, Trust } from "../api/types";
+import type { AreaOut, ConnectionOut, PresetOut } from "../api/types";
+import type { HomeAssistant } from "../ha";
 import type { TopologyWsClient } from "../api/ws-client";
 import { TopologyError } from "../api/ws-client";
 import { expandPreset } from "./preset";
-import { localize } from "../i18n/localize";
+import { enumLabel, localize } from "../i18n/localize";
 import { toast } from "./toast";
 
-const TRUSTS: Trust[] = ["private", "shared", "public"];
+import "./connection-fields";
 
 @customElement("topology-exterior-editor")
 export class TopologyExteriorEditor extends LitElement {
   @property({ attribute: false }) public client!: TopologyWsClient;
+  @property({ attribute: false }) public hass!: HomeAssistant;
   @property({ attribute: false }) public area!: AreaOut;
   @property({ attribute: false }) public presets: PresetOut[] = [];
   @property({ attribute: false }) public flagged = false;
@@ -32,8 +44,13 @@ export class TopologyExteriorEditor extends LitElement {
     }
   }
 
+  private get exteriorPresets(): PresetOut[] {
+    return this.presets.filter((preset) => preset.scope === "exterior");
+  }
+
   private addConnection(): void {
-    const first = this.presets.find((preset) => preset.preset_name === "window") ?? this.presets[0];
+    const exterior = this.exteriorPresets;
+    const first = exterior.find((preset) => preset.preset_name === "window") ?? exterior[0];
     const connection: ConnectionOut =
       first !== undefined
         ? (expandPreset(this.presets, first.preset_name) as ConnectionOut)
@@ -41,24 +58,8 @@ export class TopologyExteriorEditor extends LitElement {
     this.connections = [...this.connections, connection];
   }
 
-  private applyPreset(index: number, presetName: string): void {
-    const expanded = expandPreset(this.presets, presetName);
-    if (expanded === null) {
-      return;
-    }
+  private replaceConnection(index: number, connection: ConnectionOut): void {
     const next = [...this.connections];
-    next[index] = { ...next[index], ...expanded };
-    this.connections = next;
-  }
-
-  private setInlineTrust(index: number, value: string): void {
-    const next = [...this.connections];
-    const connection = { ...next[index] };
-    if (value === "") {
-      delete connection.inline_trust;
-    } else {
-      connection.inline_trust = value as Trust;
-    }
     next[index] = connection;
     this.connections = next;
   }
@@ -75,35 +76,50 @@ export class TopologyExteriorEditor extends LitElement {
     }
   }
 
+  /** Sides the user declared as outer walls — where an opening can sit. */
+  private declaredSides(): string[] {
+    return Object.keys(this.area.beyond);
+  }
+
   protected override render() {
+    const sidelessCount = this.connections.filter((connection) => connection.side === undefined).length;
     return html`
       <div class="editor ${this.flagged ? "flagged" : ""}">
         <h3>${localize("editor.exterior.title")}</h3>
+        <p class="hint">${localize("editor.exterior.hint")}</p>
+        ${this.connections.length === 0
+          ? html`<p class="empty">${localize("editor.exterior.none")}</p>`
+          : nothing}
         ${this.connections.map(
           (connection, index) => html`
             <div class="connection">
-              <select
-                .value=${connection.preset_name ?? ""}
-                @change=${(ev: Event) =>
-                  this.applyPreset(index, (ev.target as HTMLSelectElement).value)}
-              >
-                <option value=""></option>
-                ${this.presets.map(
-                  (preset) => html`<option value=${preset.preset_name}>${preset.preset_name}</option>`,
-                )}
-              </select>
-              <select
-                .value=${connection.inline_trust ?? ""}
-                @change=${(ev: Event) =>
-                  this.setInlineTrust(index, (ev.target as HTMLSelectElement).value)}
-              >
-                <option value="">${localize("editor.area.trust")}</option>
-                ${TRUSTS.map((trust) => html`<option value=${trust}>${trust}</option>`)}
-              </select>
-              <button @click=${() => this.removeConnection(index)}>×</button>
+              <topology-connection-fields
+                .hass=${this.hass}
+                .connection=${connection}
+                .presets=${this.presets}
+                .scope=${"exterior"}
+                .allowInlineTrust=${true}
+                @connection-changed=${(ev: CustomEvent<{ connection: ConnectionOut }>) => {
+                  ev.stopPropagation();
+                  this.replaceConnection(index, ev.detail.connection);
+                }}
+              ></topology-connection-fields>
+              <button class="remove" @click=${() => this.removeConnection(index)}>
+                ${localize("action.remove")}
+              </button>
             </div>
           `,
         )}
+        ${sidelessCount > 0 ? html`<p class="warn">${localize("editor.exterior.sideless")}</p>` : nothing}
+        ${this.declaredSides().length > 0
+          ? html`<p class="hint">
+              ${localize("editor.exterior.outer_sides", {
+                sides: this.declaredSides()
+                  .map((side) => enumLabel("side", side))
+                  .join(", "),
+              })}
+            </p>`
+          : nothing}
         <div class="actions">
           <button @click=${this.addConnection}>${localize("editor.edge.add")}</button>
           <button class="primary" @click=${this.save}>${localize("action.save")}</button>
@@ -116,8 +132,9 @@ export class TopologyExteriorEditor extends LitElement {
     .editor {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
       padding: 16px;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
       color: var(--primary-text-color, #212121);
       border-radius: 8px;
     }
@@ -127,17 +144,29 @@ export class TopologyExteriorEditor extends LitElement {
     h3 {
       margin: 0;
     }
+    .hint,
+    .empty {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
+    }
+    .warn {
+      margin: 0;
+      color: var(--warning-color, #ff9800);
+      font-size: 0.78em;
+      line-height: 1.4;
+    }
     .connection {
       display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    select {
+      flex-direction: column;
+      gap: 6px;
       padding: 8px;
-      border: 1px solid var(--divider-color, #bdbdbd);
-      border-radius: 6px;
-      background: var(--card-background-color, #fff);
-      color: var(--primary-text-color, #212121);
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 8px;
+    }
+    .remove {
+      align-self: flex-end;
     }
     .actions {
       display: flex;
@@ -145,7 +174,7 @@ export class TopologyExteriorEditor extends LitElement {
       gap: 8px;
     }
     button {
-      padding: 8px 16px;
+      padding: 6px 14px;
       border: 1px solid var(--divider-color, #bdbdbd);
       border-radius: 6px;
       background: var(--card-background-color, #fff);

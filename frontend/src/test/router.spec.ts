@@ -7,7 +7,9 @@ describe("router parses the ?focus= deep-link query (§2.2)", () => {
     expect(parseRoute("?focus=isolated")).toEqual({ view: "map", focus: "isolated" });
     expect(parseRoute("?focus=floors")).toEqual({ view: "floors", focus: "floors" });
     expect(parseRoute("?focus=bearings")).toEqual({ view: "map", focus: "bearings" });
-    expect(parseRoute("?focus=exterior")).toEqual({ view: "exterior", focus: "exterior" });
+    // The exterior scope flags on the map like the other area scopes; it has no
+    // view of its own (the old "exterior" view rendered nothing).
+    expect(parseRoute("?focus=exterior")).toEqual({ view: "map", focus: "exterior" });
     expect(parseRoute("?focus=orphans")).toEqual({ view: "orphans", focus: "orphans" });
   });
 

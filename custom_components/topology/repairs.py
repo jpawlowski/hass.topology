@@ -36,12 +36,14 @@ from .const import (
     DOMAIN,
     ISSUE_CONTRADICTORY_BEARINGS,
     ISSUE_DEEP_LINKS,
+    ISSUE_EDGES_SPANNING_FLOORS,
     ISSUE_EXTERIOR_NON_OUTDOOR,
     ISSUE_INDOOR_WITHOUT_FLOOR,
     ISSUE_ISOLATED_AREAS,
     ISSUE_ORPHANED_ENTRIES,
     ISSUE_UNANNOTATED_THRESHOLD,
     ISSUE_UNKNOWN_ENUM,
+    ISSUE_VERTICAL_WITHOUT_PASSAGE,
     LEARN_MORE_URL,
 )
 
@@ -168,6 +170,20 @@ def async_reconcile_issues(
         active=bool(consistency.exterior_on_non_outdoor_side),
         placeholders={"count": str(len(consistency.exterior_on_non_outdoor_side))},
         learn_more_url=ISSUE_DEEP_LINKS[ISSUE_EXTERIOR_NON_OUTDOOR],
+    )
+    _toggle(
+        hass,
+        ISSUE_EDGES_SPANNING_FLOORS,
+        active=bool(consistency.edges_spanning_multiple_floors),
+        placeholders={"count": str(len(consistency.edges_spanning_multiple_floors))},
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_EDGES_SPANNING_FLOORS],
+    )
+    _toggle(
+        hass,
+        ISSUE_VERTICAL_WITHOUT_PASSAGE,
+        active=bool(consistency.vertical_edges_without_vertical_passage),
+        placeholders={"count": str(len(consistency.vertical_edges_without_vertical_passage))},
+        learn_more_url=ISSUE_DEEP_LINKS[ISSUE_VERTICAL_WITHOUT_PASSAGE],
     )
 
     # Unknown-enum: the moved Phase-2 logic, byte-identical placeholders

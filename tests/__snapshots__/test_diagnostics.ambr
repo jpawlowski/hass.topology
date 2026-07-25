@@ -123,6 +123,8 @@
       'area_count': 3,
       'contradictory_bearings': list([
       ]),
+      'edges_spanning_multiple_floors': list([
+      ]),
       'exterior_on_non_outdoor_side': list([
       ]),
       'indoor_areas_without_floor': list([
@@ -139,6 +141,8 @@
       'unannotated_areas': list([
       ]),
       'unknown_enum_values': list([
+      ]),
+      'vertical_edges_without_vertical_passage': list([
       ]),
     }),
     'home_config': dict({

@@ -103,6 +103,7 @@
         "lift": "Lift",
         "loft_ladder": "Loft ladder",
         "ramp": "Ramp",
+        "hatch": "Hatch",
         "window": "Window",
         "outside_door": "Outside door"
       }
@@ -307,6 +308,14 @@
     "exterior_on_non_outdoor_side": {
       "title": "Exterior opening on a non-outdoor side",
       "description": "{count} area(s) declare an exterior opening on a side that faces earth or a glazed opening onto a neighbor, which is not physically possible. Review the affected openings so each faces a valid side. This suggestion clears once the openings are corrected."
+    },
+    "edges_spanning_multiple_floors": {
+      "title": "Connections spanning more than one floor",
+      "description": "{count} connection(s) join areas more than one floor apart. That is real in a void, an atrium or a maisonette, so nothing is blocked — but it more often means an area sits on the wrong floor. Check the floor assignments of the areas involved, or leave the connection as it is. This suggestion clears once no connection spans more than one floor."
+    },
+    "vertical_edges_without_vertical_passage": {
+      "title": "Connection between floors with no way to climb",
+      "description": "{count} connection(s) join areas on different floors, but none of them offers stairs, a ramp, a lift, a ladder or a hatch — so nothing can actually get from one to the other. Usually the wrong kind was picked (an interior door where a stair belongs). A plain shared ceiling is a legitimate exception. This suggestion clears once each such connection carries a climbing kind."
     }
   }
 }

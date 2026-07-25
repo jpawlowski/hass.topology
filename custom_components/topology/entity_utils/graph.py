@@ -11,6 +11,7 @@ participate.
 from __future__ import annotations
 
 from collections import deque
+from itertools import pairwise
 from typing import TYPE_CHECKING
 
 from custom_components.topology.data import GraphView, Neighbor, Passage
@@ -22,18 +23,24 @@ if TYPE_CHECKING:
     from homeassistant.helpers.floor_registry import FloorRegistry
 
 
-def _axis(
+def edge_levels(
     edge: Edge,
     area_reg: AreaRegistry,
     floor_reg: FloorRegistry,
     overrides: dict[str, FloorOverride],
-) -> str:
-    """Return the edge axis from the two areas' effective levels (§4.1)."""
+) -> tuple[str, int | None]:
+    """Return ``(axis, level_delta)`` for an edge, delta signed a -> b (§4.1).
+
+    ``axis`` classifies the edge; ``level_delta`` adds the direction the axis
+    cannot carry (positive = ``area_b`` sits above ``area_a``). Both are derived,
+    never stored: the floor level is the registry's to own.
+    """
     level_a = effective_level(edge.area_a, area_reg, floor_reg, overrides)
     level_b = effective_level(edge.area_b, area_reg, floor_reg, overrides)
     if level_a is None or level_b is None:
-        return "unknown"
-    return "horizontal" if level_a == level_b else "vertical"
+        return "unknown", None
+    delta = level_b - level_a
+    return ("horizontal" if delta == 0 else "vertical"), delta
 
 
 def _traversable(edge: Edge) -> bool:
@@ -53,17 +60,28 @@ def build_graph(
     for edge in snapshot.edges:
         if edge.orphaned_at is not None:
             continue
-        axis = _axis(edge, area_reg, floor_reg, overrides)
+        axis, delta = edge_levels(edge, area_reg, floor_reg, overrides)
         perimeter = is_perimeter_edge(edge, area_trust)
         traversable = _traversable(edge)
         adjacency.setdefault(edge.area_a, []).append(
             Neighbor(
-                area_id=edge.area_b, edge_id=edge.edge_id, axis=axis, is_perimeter=perimeter, traversable=traversable
+                area_id=edge.area_b,
+                edge_id=edge.edge_id,
+                axis=axis,
+                is_perimeter=perimeter,
+                traversable=traversable,
+                level_delta=delta,
             )
         )
+        # The delta is relative to the asking area, so it flips for the far side.
         adjacency.setdefault(edge.area_b, []).append(
             Neighbor(
-                area_id=edge.area_a, edge_id=edge.edge_id, axis=axis, is_perimeter=perimeter, traversable=traversable
+                area_id=edge.area_a,
+                edge_id=edge.edge_id,
+                axis=axis,
+                is_perimeter=perimeter,
+                traversable=traversable,
+                level_delta=None if delta is None else -delta,
             )
         )
     return GraphView(adjacency={area_id: tuple(items) for area_id, items in adjacency.items()})
@@ -72,6 +90,24 @@ def build_graph(
 def neighbors(graph: GraphView, area_id: str) -> tuple[Neighbor, ...]:
     """Return the neighbours of an area (empty tuple when isolated, §4.1)."""
     return graph.adjacency.get(area_id, ())
+
+
+def path_distance(graph: GraphView, path: list[str]) -> int | None:
+    """Return a path's weighted distance: hops plus every storey it changes (master §73).
+
+    Climbing a floor is a bigger deal than crossing a room, which a plain hop
+    count cannot express — a landing two floors up looks as near as the room next
+    door. Returns ``None`` when any hop's level difference is unresolvable, so a
+    caller sees "cannot say" instead of a total that is silently too small; the
+    unweighted ``hops`` is always available beside it.
+    """
+    total = 0
+    for src, dst in pairwise(path):
+        hop = next((n for n in graph.adjacency.get(src, ()) if n.area_id == dst), None)
+        if hop is None or hop.level_delta is None:
+            return None
+        total += 1 + abs(hop.level_delta)
+    return total
 
 
 def shortest_path(

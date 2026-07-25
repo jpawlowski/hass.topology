@@ -8,11 +8,13 @@ from custom_components.topology.entity_utils.derivations import (
     build_health,
     derive,
     derive_areas,
+    derive_consistency,
     derive_house,
     derive_perimeter,
     effective_level,
 )
 from custom_components.topology.entity_utils.entity_ids import area_slug
+from custom_components.topology.entity_utils.graph import path_distance
 from homeassistant.helpers import area_registry as ar, floor_registry as fr
 
 if TYPE_CHECKING:
@@ -181,6 +183,222 @@ async def test_derive_perimeter_override_same_trust(
 
     perimeter = derive_perimeter(store.snapshot(), area_registry)
     assert any(entry["source"] == "edge" and entry["edge_id"] == "flur::kueche" for entry in perimeter)
+
+
+async def test_perimeter_edge_attributed_to_more_private_side(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+) -> None:
+    """A perimeter edge belongs to the room it protects, not to the smaller area_id.
+
+    ``flur`` sorts before ``wohnzimmer``, so attributing to ``edge.area_a`` would
+    pick the *shared* side here and the *private* side for a pair that happens to
+    sort the other way — arbitrary either way.
+    """
+    store = setup_integration.runtime_data.store
+    await store.async_update_area("flur", {"trust": "shared"})
+    await store.async_update_area("wohnzimmer", {"trust": "private"})
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "level", "barrier": "door"}])
+
+    perimeter = derive_perimeter(store.snapshot(), area_registry)
+    edges = [entry for entry in perimeter if entry["source"] == "edge"]
+    assert len(edges) == 1
+    assert edges[0]["area_id"] == "wohnzimmer"
+
+
+async def test_perimeter_edge_attribution_is_stable_for_equal_trust(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+) -> None:
+    """An override boundary is symmetric, so area_a stays the deterministic pick."""
+    store = setup_integration.runtime_data.store
+    await store.async_update_area("flur", {"trust": "private"})
+    await store.async_update_area("kueche", {"trust": "private"})
+    await store.async_upsert_edge(
+        "flur", "kueche", [{"passage": "level", "barrier": "door", "perimeter_override": True}]
+    )
+
+    perimeter = derive_perimeter(store.snapshot(), area_registry)
+    edges = [entry for entry in perimeter if entry["source"] == "edge"]
+    assert [entry["area_id"] for entry in edges] == ["flur"]
+
+
+async def test_contradictory_bearings_mirrors_the_far_side(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+) -> None:
+    """A connection's side belongs to area_a; area_b meets that wall from the opposite one.
+
+    The edge sits on ``flur``'s north wall, so it occupies ``wohnzimmer``'s *south*
+    wall. Declaring a beyond class for ``flur`` N or ``wohnzimmer`` S contradicts
+    the edge; ``wohnzimmer`` N is a genuinely free outer wall.
+    """
+    store = setup_integration.runtime_data.store
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "level", "barrier": "door", "side": "N"}])
+
+    await store.async_set_beyond("wohnzimmer", "N", "outdoor")
+    report = derive_consistency(store.snapshot(), area_registry)
+    assert "wohnzimmer" not in report.contradictory_bearings
+
+    await store.async_set_beyond("wohnzimmer", "S", "outdoor")
+    report = derive_consistency(store.snapshot(), area_registry)
+    assert "wohnzimmer" in report.contradictory_bearings
+
+    await store.async_set_beyond("flur", "N", "outdoor")
+    report = derive_consistency(store.snapshot(), area_registry)
+    assert "flur" in report.contradictory_bearings
+
+
+async def test_neighbor_level_delta_signed_per_direction(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    two_floor_registry: fr.FloorRegistry,
+) -> None:
+    """level_delta says which neighbour is the upper one; axis alone cannot."""
+    floors = {floor.name: floor.floor_id for floor in two_floor_registry.async_list_floors()}
+    area_registry.async_update("flur", floor_id=floors["Ground"])
+    area_registry.async_update("wohnzimmer", floor_id=floors["Upper"])
+    store = setup_integration.runtime_data.store
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "stairs", "barrier": "open"}])
+
+    graph = derive(store.snapshot(), area_registry, two_floor_registry).graph
+    from_flur = graph.adjacency["flur"][0]
+    from_wohn = graph.adjacency["wohnzimmer"][0]
+    assert from_flur.axis == "vertical"
+    assert from_flur.level_delta == 1
+    assert from_wohn.level_delta == -1
+
+
+async def test_neighbor_level_delta_none_without_levels(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    floor_registry: fr.FloorRegistry,
+) -> None:
+    """An unresolvable level yields no delta rather than a misleading zero."""
+    store = setup_integration.runtime_data.store
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "level", "barrier": "door"}])
+
+    graph = derive(store.snapshot(), area_registry, floor_registry).graph
+    neighbor = graph.adjacency["flur"][0]
+    assert neighbor.axis == "unknown"
+    assert neighbor.level_delta is None
+
+
+async def test_edge_geometry_flags_multi_floor_span(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+) -> None:
+    """An edge across two storeys is flagged; one across a single storey is not."""
+    floor_reg = fr.async_get(hass)
+    ground = floor_reg.async_create("Ground", level=0)
+    upper = floor_reg.async_create("Upper", level=1)
+    attic = floor_reg.async_create("Attic", level=2)
+    area_registry.async_update("flur", floor_id=ground.floor_id)
+    area_registry.async_update("wohnzimmer", floor_id=upper.floor_id)
+    area_registry.async_update("kueche", floor_id=attic.floor_id)
+
+    store = setup_integration.runtime_data.store
+    stair = [{"passage": "stairs", "barrier": "open"}]
+    await store.async_upsert_edge("flur", "wohnzimmer", stair)  # one storey — fine
+    await store.async_upsert_edge("flur", "kueche", stair)  # two storeys — flagged
+
+    report = derive_consistency(store.snapshot(), area_registry, floor_reg)
+    assert report.edges_spanning_multiple_floors == ("flur::kueche",)
+
+
+async def test_edge_geometry_flags_vertical_edge_that_cannot_climb(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    two_floor_registry: fr.FloorRegistry,
+) -> None:
+    """A between-storeys edge whose bundle never climbs is flagged; a stair is not."""
+    floors = {floor.name: floor.floor_id for floor in two_floor_registry.async_list_floors()}
+    area_registry.async_update("flur", floor_id=floors["Ground"])
+    area_registry.async_update("wohnzimmer", floor_id=floors["Upper"])
+    store = setup_integration.runtime_data.store
+
+    # A step-free door between two storeys: nothing on it actually climbs.
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "level", "barrier": "door"}])
+    report = derive_consistency(store.snapshot(), area_registry, two_floor_registry)
+    assert report.vertical_edges_without_vertical_passage == ("flur::wohnzimmer",)
+
+    # Adding a stair to the same bundle resolves it.
+    await store.async_upsert_edge(
+        "flur",
+        "wohnzimmer",
+        [{"passage": "level", "barrier": "door"}, {"passage": "stairs", "barrier": "open"}],
+    )
+    report = derive_consistency(store.snapshot(), area_registry, two_floor_registry)
+    assert report.vertical_edges_without_vertical_passage == ()
+
+
+async def test_edge_geometry_ignores_same_floor_and_unknown_levels(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    floor_registry: fr.FloorRegistry,
+) -> None:
+    """Neither advisory fires on a horizontal edge or where a level is unresolvable."""
+    ground = next(iter(floor_registry.async_list_floors()))
+    area_registry.async_update("flur", floor_id=ground.floor_id)
+    area_registry.async_update("wohnzimmer", floor_id=ground.floor_id)
+    store = setup_integration.runtime_data.store
+    # Same floor: a step-free door is exactly right here.
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "level", "barrier": "door"}])
+    # kueche has no floor at all, so the axis is unknown, not vertical.
+    await store.async_upsert_edge("flur", "kueche", [{"passage": "level", "barrier": "door"}])
+
+    report = derive_consistency(store.snapshot(), area_registry, floor_registry)
+    assert report.edges_spanning_multiple_floors == ()
+    assert report.vertical_edges_without_vertical_passage == ()
+
+
+async def test_path_distance_weights_floor_changes(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    two_floor_registry: fr.FloorRegistry,
+) -> None:
+    """Distance charges a storey change on top of the hop; hops stays unweighted."""
+    floors = {floor.name: floor.floor_id for floor in two_floor_registry.async_list_floors()}
+    area_registry.async_update("flur", floor_id=floors["Ground"])
+    area_registry.async_update("kueche", floor_id=floors["Ground"])
+    area_registry.async_update("wohnzimmer", floor_id=floors["Upper"])
+    store = setup_integration.runtime_data.store
+    await store.async_upsert_edge("flur", "kueche", [{"passage": "level", "barrier": "door"}])
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "stairs", "barrier": "open"}])
+
+    graph = derive(store.snapshot(), area_registry, two_floor_registry).graph
+    # Same floor: one hop, one unit of distance.
+    assert path_distance(graph, ["flur", "kueche"]) == 1
+    # Up one storey: the hop plus the storey it climbs.
+    assert path_distance(graph, ["flur", "wohnzimmer"]) == 2
+    # Direction must not matter — a stair down is as far as the same stair up.
+    assert path_distance(graph, ["wohnzimmer", "flur"]) == 2
+    # Across the landing and up: two hops, one storey.
+    assert path_distance(graph, ["kueche", "flur", "wohnzimmer"]) == 3
+    assert path_distance(graph, ["flur"]) == 0
+
+
+async def test_path_distance_none_when_a_level_is_unknown(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    floor_registry: fr.FloorRegistry,
+) -> None:
+    """An unresolvable level yields no distance rather than a silently short one."""
+    store = setup_integration.runtime_data.store
+    await store.async_upsert_edge("flur", "wohnzimmer", [{"passage": "level", "barrier": "door"}])
+
+    graph = derive(store.snapshot(), area_registry, floor_registry).graph
+    assert path_distance(graph, ["flur", "wohnzimmer"]) is None
 
 
 async def test_effective_level_uses_override(

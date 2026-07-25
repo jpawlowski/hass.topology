@@ -2,10 +2,9 @@
 Config flow handler package for topology.
 
 Package structure:
-- config_flow.py: Main config flow (user setup; reconfigure in Phase 2)
+- config_flow.py: The confirm-only config flow (user setup + reconfigure) and
+  its test-before-configure checks
 - schemas/: Voluptuous schemas for the flow steps
-- validators/: Validation functions for the flow steps
-- handler.py: Backwards-compatibility re-export wrapper
 
 Topology has no options flow and no subentries (ADR "Editing Surface"): the
 panel is the primary editing surface.

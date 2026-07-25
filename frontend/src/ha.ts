@@ -30,11 +30,23 @@ export interface HassUser {
   is_admin: boolean;
 }
 
+/**
+ * A state object, read only to offer open/close sensors when binding one to a
+ * connection. HA's own entity picker is not importable here (§4.1), so the panel
+ * lists candidates from `hass.states` itself.
+ */
+export interface HassState {
+  entity_id: string;
+  state: string;
+  attributes: { friendly_name?: string; device_class?: string };
+}
+
 /** The subset of the HA frontend `hass` object the panel relies on. */
 export interface HomeAssistant {
   connection: HassConnection;
   areas: Record<string, HassArea>;
   floors: Record<string, HassFloor>;
+  states?: Record<string, HassState>;
   user?: HassUser;
   language?: string;
   localize?: (key: string, ...args: unknown[]) => string;

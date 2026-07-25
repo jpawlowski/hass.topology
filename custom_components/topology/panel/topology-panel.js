@@ -1,42 +1,92 @@
-var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e,r)=>{for(var o=r>1?void 0:r?nt(t,e):t,i=s.length-1,n;i>=0;i--)(n=s[i])&&(o=(r?n(t,e,o):n(o))||o);return r&&o&&it(t,e,o),o};var ee=globalThis,te=ee.ShadowRoot&&(ee.ShadyCSS===void 0||ee.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,ce=Symbol(),Ae=new WeakMap,K=class{constructor(t,e,r){if(this._$cssResult$=!0,r!==ce)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=t,this.t=e}get styleSheet(){let t=this.o,e=this.t;if(te&&t===void 0){let r=e!==void 0&&e.length===1;r&&(t=Ae.get(e)),t===void 0&&((this.o=t=new CSSStyleSheet).replaceSync(this.cssText),r&&Ae.set(e,t))}return t}toString(){return this.cssText}},we=s=>new K(typeof s=="string"?s:s+"",void 0,ce),$=(s,...t)=>{let e=s.length===1?s[0]:t.reduce((r,o,i)=>r+(n=>{if(n._$cssResult$===!0)return n.cssText;if(typeof n=="number")return n;throw Error("Value passed to 'css' function must be a 'css' function result: "+n+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(o)+s[i+1],s[0]);return new K(e,s,ce)},Ce=(s,t)=>{if(te)s.adoptedStyleSheets=t.map(e=>e instanceof CSSStyleSheet?e:e.styleSheet);else for(let e of t){let r=document.createElement("style"),o=ee.litNonce;o!==void 0&&r.setAttribute("nonce",o),r.textContent=e.cssText,s.appendChild(r)}},de=te?s=>s:s=>s instanceof CSSStyleSheet?(t=>{let e="";for(let r of t.cssRules)e+=r.cssText;return we(e)})(s):s;var{is:at,defineProperty:lt,getOwnPropertyDescriptor:ct,getOwnPropertyNames:dt,getOwnPropertySymbols:pt,getPrototypeOf:ut}=Object,re=globalThis,Oe=re.trustedTypes,ht=Oe?Oe.emptyScript:"",mt=re.reactiveElementPolyfillSupport,Y=(s,t)=>s,V={toAttribute(s,t){switch(t){case Boolean:s=s?ht:null;break;case Object:case Array:s=s==null?s:JSON.stringify(s)}return s},fromAttribute(s,t){let e=s;switch(t){case Boolean:e=s!==null;break;case Number:e=s===null?null:Number(s);break;case Object:case Array:try{e=JSON.parse(s)}catch{e=null}}return e}},oe=(s,t)=>!at(s,t),ke={attribute:!0,type:String,converter:V,reflect:!1,useDefault:!1,hasChanged:oe};Symbol.metadata??=Symbol("metadata"),re.litPropertyMetadata??=new WeakMap;var P=class extends HTMLElement{static addInitializer(t){this._$Ei(),(this.l??=[]).push(t)}static get observedAttributes(){return this.finalize(),this._$Eh&&[...this._$Eh.keys()]}static createProperty(t,e=ke){if(e.state&&(e.attribute=!1),this._$Ei(),this.prototype.hasOwnProperty(t)&&((e=Object.create(e)).wrapped=!0),this.elementProperties.set(t,e),!e.noAccessor){let r=Symbol(),o=this.getPropertyDescriptor(t,r,e);o!==void 0&&lt(this.prototype,t,o)}}static getPropertyDescriptor(t,e,r){let{get:o,set:i}=ct(this.prototype,t)??{get(){return this[e]},set(n){this[e]=n}};return{get:o,set(n){let d=o?.call(this);i?.call(this,n),this.requestUpdate(t,d,r)},configurable:!0,enumerable:!0}}static getPropertyOptions(t){return this.elementProperties.get(t)??ke}static _$Ei(){if(this.hasOwnProperty(Y("elementProperties")))return;let t=ut(this);t.finalize(),t.l!==void 0&&(this.l=[...t.l]),this.elementProperties=new Map(t.elementProperties)}static finalize(){if(this.hasOwnProperty(Y("finalized")))return;if(this.finalized=!0,this._$Ei(),this.hasOwnProperty(Y("properties"))){let e=this.properties,r=[...dt(e),...pt(e)];for(let o of r)this.createProperty(o,e[o])}let t=this[Symbol.metadata];if(t!==null){let e=litPropertyMetadata.get(t);if(e!==void 0)for(let[r,o]of e)this.elementProperties.set(r,o)}this._$Eh=new Map;for(let[e,r]of this.elementProperties){let o=this._$Eu(e,r);o!==void 0&&this._$Eh.set(o,e)}this.elementStyles=this.finalizeStyles(this.styles)}static finalizeStyles(t){let e=[];if(Array.isArray(t)){let r=new Set(t.flat(1/0).reverse());for(let o of r)e.unshift(de(o))}else t!==void 0&&e.push(de(t));return e}static _$Eu(t,e){let r=e.attribute;return r===!1?void 0:typeof r=="string"?r:typeof t=="string"?t.toLowerCase():void 0}constructor(){super(),this._$Ep=void 0,this.isUpdatePending=!1,this.hasUpdated=!1,this._$Em=null,this._$Ev()}_$Ev(){this._$ES=new Promise(t=>this.enableUpdating=t),this._$AL=new Map,this._$E_(),this.requestUpdate(),this.constructor.l?.forEach(t=>t(this))}addController(t){(this._$EO??=new Set).add(t),this.renderRoot!==void 0&&this.isConnected&&t.hostConnected?.()}removeController(t){this._$EO?.delete(t)}_$E_(){let t=new Map,e=this.constructor.elementProperties;for(let r of e.keys())this.hasOwnProperty(r)&&(t.set(r,this[r]),delete this[r]);t.size>0&&(this._$Ep=t)}createRenderRoot(){let t=this.shadowRoot??this.attachShadow(this.constructor.shadowRootOptions);return Ce(t,this.constructor.elementStyles),t}connectedCallback(){this.renderRoot??=this.createRenderRoot(),this.enableUpdating(!0),this._$EO?.forEach(t=>t.hostConnected?.())}enableUpdating(t){}disconnectedCallback(){this._$EO?.forEach(t=>t.hostDisconnected?.())}attributeChangedCallback(t,e,r){this._$AK(t,r)}_$ET(t,e){let r=this.constructor.elementProperties.get(t),o=this.constructor._$Eu(t,r);if(o!==void 0&&r.reflect===!0){let i=(r.converter?.toAttribute!==void 0?r.converter:V).toAttribute(e,r.type);this._$Em=t,i==null?this.removeAttribute(o):this.setAttribute(o,i),this._$Em=null}}_$AK(t,e){let r=this.constructor,o=r._$Eh.get(t);if(o!==void 0&&this._$Em!==o){let i=r.getPropertyOptions(o),n=typeof i.converter=="function"?{fromAttribute:i.converter}:i.converter?.fromAttribute!==void 0?i.converter:V;this._$Em=o;let d=n.fromAttribute(e,i.type);this[o]=d??this._$Ej?.get(o)??d,this._$Em=null}}requestUpdate(t,e,r,o=!1,i){if(t!==void 0){let n=this.constructor;if(o===!1&&(i=this[t]),r??=n.getPropertyOptions(t),!((r.hasChanged??oe)(i,e)||r.useDefault&&r.reflect&&i===this._$Ej?.get(t)&&!this.hasAttribute(n._$Eu(t,r))))return;this.C(t,e,r)}this.isUpdatePending===!1&&(this._$ES=this._$EP())}C(t,e,{useDefault:r,reflect:o,wrapped:i},n){r&&!(this._$Ej??=new Map).has(t)&&(this._$Ej.set(t,n??e??this[t]),i!==!0||n!==void 0)||(this._$AL.has(t)||(this.hasUpdated||r||(e=void 0),this._$AL.set(t,e)),o===!0&&this._$Em!==t&&(this._$Eq??=new Set).add(t))}async _$EP(){this.isUpdatePending=!0;try{await this._$ES}catch(e){Promise.reject(e)}let t=this.scheduleUpdate();return t!=null&&await t,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){if(!this.isUpdatePending)return;if(!this.hasUpdated){if(this.renderRoot??=this.createRenderRoot(),this._$Ep){for(let[o,i]of this._$Ep)this[o]=i;this._$Ep=void 0}let r=this.constructor.elementProperties;if(r.size>0)for(let[o,i]of r){let{wrapped:n}=i,d=this[o];n!==!0||this._$AL.has(o)||d===void 0||this.C(o,void 0,i,d)}}let t=!1,e=this._$AL;try{t=this.shouldUpdate(e),t?(this.willUpdate(e),this._$EO?.forEach(r=>r.hostUpdate?.()),this.update(e)):this._$EM()}catch(r){throw t=!1,this._$EM(),r}t&&this._$AE(e)}willUpdate(t){}_$AE(t){this._$EO?.forEach(e=>e.hostUpdated?.()),this.hasUpdated||(this.hasUpdated=!0,this.firstUpdated(t)),this.updated(t)}_$EM(){this._$AL=new Map,this.isUpdatePending=!1}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$ES}shouldUpdate(t){return!0}update(t){this._$Eq&&=this._$Eq.forEach(e=>this._$ET(e,this[e])),this._$EM()}updated(t){}firstUpdated(t){}};P.elementStyles=[],P.shadowRootOptions={mode:"open"},P[Y("elementProperties")]=new Map,P[Y("finalized")]=new Map,mt?.({ReactiveElement:P}),(re.reactiveElementVersions??=[]).push("2.1.2");var ve=globalThis,Pe=s=>s,se=ve.trustedTypes,Me=se?se.createPolicy("lit-html",{createHTML:s=>s}):void 0,Ne="$lit$",R=`lit$${Math.random().toFixed(9).slice(2)}$`,Ie="?"+R,ft=`<${Ie}>`,j=document,J=()=>j.createComment(""),X=s=>s===null||typeof s!="object"&&typeof s!="function",be=Array.isArray,gt=s=>be(s)||typeof s?.[Symbol.iterator]=="function",pe=`[ 	
-\f\r]`,G=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,Le=/-->/g,Te=/>/g,N=RegExp(`>|${pe}(?:([^\\s"'>=/]+)(${pe}*=${pe}*(?:[^ 	
-\f\r"'\`<>=]|("|')|))|$)`,"g"),He=/'/g,Re=/"/g,je=/^(?:script|style|textarea|title)$/i,ye=s=>(t,...e)=>({_$litType$:s,strings:t,values:e}),c=ye(1),q=ye(2),Vt=ye(3),D=Symbol.for("lit-noChange"),h=Symbol.for("lit-nothing"),Ue=new WeakMap,I=j.createTreeWalker(j,129);function De(s,t){if(!be(s)||!s.hasOwnProperty("raw"))throw Error("invalid template strings array");return Me!==void 0?Me.createHTML(t):t}var vt=(s,t)=>{let e=s.length-1,r=[],o,i=t===2?"<svg>":t===3?"<math>":"",n=G;for(let d=0;d<e;d++){let p=s[d],g,y,f=-1,E=0;for(;E<p.length&&(n.lastIndex=E,y=n.exec(p),y!==null);)E=n.lastIndex,n===G?y[1]==="!--"?n=Le:y[1]!==void 0?n=Te:y[2]!==void 0?(je.test(y[2])&&(o=RegExp("</"+y[2],"g")),n=N):y[3]!==void 0&&(n=N):n===N?y[0]===">"?(n=o??G,f=-1):y[1]===void 0?f=-2:(f=n.lastIndex-y[2].length,g=y[1],n=y[3]===void 0?N:y[3]==='"'?Re:He):n===Re||n===He?n=N:n===Le||n===Te?n=G:(n=N,o=void 0);let C=n===N&&s[d+1].startsWith("/>")?" ":"";i+=n===G?p+ft:f>=0?(r.push(g),p.slice(0,f)+Ne+p.slice(f)+R+C):p+R+(f===-2?d:C)}return[De(s,i+(s[e]||"<?>")+(t===2?"</svg>":t===3?"</math>":"")),r]},Z=class s{constructor({strings:t,_$litType$:e},r){let o;this.parts=[];let i=0,n=0,d=t.length-1,p=this.parts,[g,y]=vt(t,e);if(this.el=s.createElement(g,r),I.currentNode=this.el.content,e===2||e===3){let f=this.el.content.firstChild;f.replaceWith(...f.childNodes)}for(;(o=I.nextNode())!==null&&p.length<d;){if(o.nodeType===1){if(o.hasAttributes())for(let f of o.getAttributeNames())if(f.endsWith(Ne)){let E=y[n++],C=o.getAttribute(f).split(R),U=/([.?@])?(.*)/.exec(E);p.push({type:1,index:i,name:U[2],strings:C,ctor:U[1]==="."?he:U[1]==="?"?me:U[1]==="@"?fe:B}),o.removeAttribute(f)}else f.startsWith(R)&&(p.push({type:6,index:i}),o.removeAttribute(f));if(je.test(o.tagName)){let f=o.textContent.split(R),E=f.length-1;if(E>0){o.textContent=se?se.emptyScript:"";for(let C=0;C<E;C++)o.append(f[C],J()),I.nextNode(),p.push({type:2,index:++i});o.append(f[E],J())}}}else if(o.nodeType===8)if(o.data===Ie)p.push({type:2,index:i});else{let f=-1;for(;(f=o.data.indexOf(R,f+1))!==-1;)p.push({type:7,index:i}),f+=R.length-1}i++}}static createElement(t,e){let r=j.createElement("template");return r.innerHTML=t,r}};function W(s,t,e=s,r){if(t===D)return t;let o=r!==void 0?e._$Co?.[r]:e._$Cl,i=X(t)?void 0:t._$litDirective$;return o?.constructor!==i&&(o?._$AO?.(!1),i===void 0?o=void 0:(o=new i(s),o._$AT(s,e,r)),r!==void 0?(e._$Co??=[])[r]=o:e._$Cl=o),o!==void 0&&(t=W(s,o._$AS(s,t.values),o,r)),t}var ue=class{constructor(t,e){this._$AV=[],this._$AN=void 0,this._$AD=t,this._$AM=e}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(t){let{el:{content:e},parts:r}=this._$AD,o=(t?.creationScope??j).importNode(e,!0);I.currentNode=o;let i=I.nextNode(),n=0,d=0,p=r[0];for(;p!==void 0;){if(n===p.index){let g;p.type===2?g=new Q(i,i.nextSibling,this,t):p.type===1?g=new p.ctor(i,p.name,p.strings,this,t):p.type===6&&(g=new ge(i,this,t)),this._$AV.push(g),p=r[++d]}n!==p?.index&&(i=I.nextNode(),n++)}return I.currentNode=j,o}p(t){let e=0;for(let r of this._$AV)r!==void 0&&(r.strings!==void 0?(r._$AI(t,r,e),e+=r.strings.length-2):r._$AI(t[e])),e++}},Q=class s{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(t,e,r,o){this.type=2,this._$AH=h,this._$AN=void 0,this._$AA=t,this._$AB=e,this._$AM=r,this.options=o,this._$Cv=o?.isConnected??!0}get parentNode(){let t=this._$AA.parentNode,e=this._$AM;return e!==void 0&&t?.nodeType===11&&(t=e.parentNode),t}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(t,e=this){t=W(this,t,e),X(t)?t===h||t==null||t===""?(this._$AH!==h&&this._$AR(),this._$AH=h):t!==this._$AH&&t!==D&&this._(t):t._$litType$!==void 0?this.$(t):t.nodeType!==void 0?this.T(t):gt(t)?this.k(t):this._(t)}O(t){return this._$AA.parentNode.insertBefore(t,this._$AB)}T(t){this._$AH!==t&&(this._$AR(),this._$AH=this.O(t))}_(t){this._$AH!==h&&X(this._$AH)?this._$AA.nextSibling.data=t:this.T(j.createTextNode(t)),this._$AH=t}$(t){let{values:e,_$litType$:r}=t,o=typeof r=="number"?this._$AC(t):(r.el===void 0&&(r.el=Z.createElement(De(r.h,r.h[0]),this.options)),r);if(this._$AH?._$AD===o)this._$AH.p(e);else{let i=new ue(o,this),n=i.u(this.options);i.p(e),this.T(n),this._$AH=i}}_$AC(t){let e=Ue.get(t.strings);return e===void 0&&Ue.set(t.strings,e=new Z(t)),e}k(t){be(this._$AH)||(this._$AH=[],this._$AR());let e=this._$AH,r,o=0;for(let i of t)o===e.length?e.push(r=new s(this.O(J()),this.O(J()),this,this.options)):r=e[o],r._$AI(i),o++;o<e.length&&(this._$AR(r&&r._$AB.nextSibling,o),e.length=o)}_$AR(t=this._$AA.nextSibling,e){for(this._$AP?.(!1,!0,e);t!==this._$AB;){let r=Pe(t).nextSibling;Pe(t).remove(),t=r}}setConnected(t){this._$AM===void 0&&(this._$Cv=t,this._$AP?.(t))}},B=class{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(t,e,r,o,i){this.type=1,this._$AH=h,this._$AN=void 0,this.element=t,this.name=e,this._$AM=o,this.options=i,r.length>2||r[0]!==""||r[1]!==""?(this._$AH=Array(r.length-1).fill(new String),this.strings=r):this._$AH=h}_$AI(t,e=this,r,o){let i=this.strings,n=!1;if(i===void 0)t=W(this,t,e,0),n=!X(t)||t!==this._$AH&&t!==D,n&&(this._$AH=t);else{let d=t,p,g;for(t=i[0],p=0;p<i.length-1;p++)g=W(this,d[r+p],e,p),g===D&&(g=this._$AH[p]),n||=!X(g)||g!==this._$AH[p],g===h?t=h:t!==h&&(t+=(g??"")+i[p+1]),this._$AH[p]=g}n&&!o&&this.j(t)}j(t){t===h?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,t??"")}},he=class extends B{constructor(){super(...arguments),this.type=3}j(t){this.element[this.name]=t===h?void 0:t}},me=class extends B{constructor(){super(...arguments),this.type=4}j(t){this.element.toggleAttribute(this.name,!!t&&t!==h)}},fe=class extends B{constructor(t,e,r,o,i){super(t,e,r,o,i),this.type=5}_$AI(t,e=this){if((t=W(this,t,e,0)??h)===D)return;let r=this._$AH,o=t===h&&r!==h||t.capture!==r.capture||t.once!==r.once||t.passive!==r.passive,i=t!==h&&(r===h||o);o&&this.element.removeEventListener(this.name,this,r),i&&this.element.addEventListener(this.name,this,t),this._$AH=t}handleEvent(t){typeof this._$AH=="function"?this._$AH.call(this.options?.host??this.element,t):this._$AH.handleEvent(t)}},ge=class{constructor(t,e,r){this.element=t,this.type=6,this._$AN=void 0,this._$AM=e,this.options=r}get _$AU(){return this._$AM._$AU}_$AI(t){W(this,t)}};var bt=ve.litHtmlPolyfillSupport;bt?.(Z,Q),(ve.litHtmlVersions??=[]).push("3.3.3");var ze=(s,t,e)=>{let r=e?.renderBefore??t,o=r._$litPart$;if(o===void 0){let i=e?.renderBefore??null;r._$litPart$=o=new Q(t.insertBefore(J(),i),i,void 0,e??{})}return o._$AI(s),o};var $e=globalThis,v=class extends P{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0}createRenderRoot(){let t=super.createRenderRoot();return this.renderOptions.renderBefore??=t.firstChild,t}update(t){let e=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(t),this._$Do=ze(e,this.renderRoot,this.renderOptions)}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(!0)}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(!1)}render(){return D}};v._$litElement$=!0,v.finalized=!0,$e.litElementHydrateSupport?.({LitElement:v});var yt=$e.litElementPolyfillSupport;yt?.({LitElement:v});($e.litElementVersions??=[]).push("4.2.2");var x=s=>(t,e)=>{e!==void 0?e.addInitializer(()=>{customElements.define(s,t)}):customElements.define(s,t)};var $t={attribute:!0,type:String,converter:V,reflect:!1,hasChanged:oe},xt=(s=$t,t,e)=>{let{kind:r,metadata:o}=e,i=globalThis.litPropertyMetadata.get(o);if(i===void 0&&globalThis.litPropertyMetadata.set(o,i=new Map),r==="setter"&&((s=Object.create(s)).wrapped=!0),i.set(e.name,s),r==="accessor"){let{name:n}=e;return{set(d){let p=t.get.call(this);t.set.call(this,d),this.requestUpdate(n,p,s,!0,d)},init(d){return d!==void 0&&this.C(n,void 0,s,d),d}}}if(r==="setter"){let{name:n}=e;return function(d){let p=this[n];t.call(this,d),this.requestUpdate(n,p,s,!0,d)}}throw Error("Unsupported decorator location: "+r)};function u(s){return(t,e)=>typeof e=="object"?xt(s,t,e):((r,o,i)=>{let n=o.hasOwnProperty(i);return o.constructor.createProperty(i,r),n?Object.getOwnPropertyDescriptor(o,i):void 0})(s,t,e)}function b(s){return u({...s,state:!0,attribute:!1})}var m=class extends Error{constructor(t,e){super(e),this.name="TopologyError",this.code=t}};function _t(s){if(s&&typeof s=="object"&&"code"in s){let t=s;return new m(t.code,t.message??t.code)}return new m("store_error",s instanceof Error?s.message:String(s))}var ne=class{constructor(t){this.connection=t}async send(t){try{return await this.connection.sendMessagePromise(t)}catch(e){throw _t(e)}}listAnnotations(){return this.send({type:"topology/list_annotations"})}health(){return this.send({type:"topology/health"})}neighbors(t){return this.send({type:"topology/neighbors",area_id:t})}path(t,e,r=!1){return this.send({type:"topology/path",from:t,to:e,traversable_only:r})}subscribeUpdates(t){return this.connection.subscribeMessage(t,{type:"topology/subscribe_updates"})}updateArea(t,e){return this.send({type:"topology/update_area",area_id:t,annotation:e})}upsertEdge(t,e,r){return this.send({type:"topology/upsert_edge",area_a:t,area_b:e,connections:r})}deleteEdge(t){return this.send({type:"topology/delete_edge",edge_id:t})}restoreEdge(t){return this.send({type:"topology/restore_edge",edge_id:t})}setBeyond(t,e,r){return this.send({type:"topology/set_beyond",area_id:t,side:e,beyond:r})}setExteriorConnections(t,e){return this.send({type:"topology/set_exterior_connections",area_id:t,connections:e})}setFloorLevel(t,e){return this.send({type:"topology/set_floor_level",floor_id:t,level:e})}updateHomeConfig(t){return this.send({type:"topology/update_home_config",...t})}};var ae=class{constructor(t,e={}){this.listeners=new Set;this._state={snapshot:null,health:null,connected:!0,error:null};this.unsubscribe=null;this.coalesceTimer=null;this.disposed=!1;this.client=t,this.coalesceMs=e.coalesceMs??150}get state(){return this._state}addListener(t){return this.listeners.add(t),()=>this.listeners.delete(t)}setState(t){this._state={...this._state,...t};for(let e of this.listeners)e()}async connect(){await this.reseed(),!this.disposed&&(this.unsubscribe=await this.client.subscribeUpdates(t=>this.handleUpdate(t)))}async reseed(){try{let[t,e]=await Promise.all([this.client.listAnnotations(),this.client.health()]);this.setState({snapshot:t,health:e,error:null})}catch(t){this.setState({error:t instanceof Error?t.message:String(t)})}}handleUpdate(t){this.coalesceTimer!==null&&clearTimeout(this.coalesceTimer),this.coalesceTimer=setTimeout(()=>{this.coalesceTimer=null,this.reseed()},this.coalesceMs)}handleConnectionState(t){let e=this._state.connected;this.setState({connected:t}),t&&!e&&this.reseed()}async dispose(){if(this.disposed=!0,this.coalesceTimer!==null&&(clearTimeout(this.coalesceTimer),this.coalesceTimer=null),this.unsubscribe!==null){let t=this.unsubscribe;this.unsubscribe=null,await t()}this.listeners.clear()}};var St=["unannotated","isolated","floors","bearings","exterior","orphans"],Et={unannotated:"map",isolated:"map",floors:"floors",bearings:"map",exterior:"exterior",orphans:"orphans"};function At(s){return s!==null&&St.includes(s)}function We(s){let t=s.startsWith("?")?s.slice(1):s,r=new URLSearchParams(t).get("focus");return At(r)?{view:Et[r],focus:r}:{view:"map",focus:null}}var le={"panel.title":"Topology","panel.floor.outdoor":"Outdoor / unfloored","panel.floor.switcher":"Floor","banner.reconnecting":"Reconnecting\u2026","banner.error":"Could not load topology data","map.needs_annotation":"Needs annotation","map.orphaned":"Orphaned (registry entry gone)","map.legend.trust":"Trust","map.legend.environment":"Environment","sidebar.unannotated":"Unannotated areas","sidebar.isolated":"Isolated areas","sidebar.bearings":"Contradictory bearings","sidebar.none":"Nothing flagged","editor.area.title":"Area annotation","editor.area.type":"Type","editor.area.environment":"Environment","editor.area.trust":"Trust","editor.edge.title":"Connection","editor.edge.preset":"Preset","editor.edge.add":"Add connection","editor.edge.delete":"Delete edge","editor.beyond.title":"Outer wall (beyond)","editor.exterior.title":"Exterior connections","editor.floor.title":"Floor levels","editor.floor.effective":"Effective level","editor.floor.override":"Override","editor.home.title":"Home configuration","editor.home.occupancy":"Occupancy extent","editor.home.threshold":"Unannotated repair threshold","editor.home.project_environment":"Project environment labels","editor.home.project_type":"Project type labels","editor.home.project_trust":"Project trust labels","first_run.title":"Seed annotations from Home Assistant","first_run.hint":"One-shot import from the area registry. It only fills in annotations that are still empty and never overwrites what you have set.","first_run.source.aliases":"Import area aliases","first_run.source.labels":"Import area labels","first_run.import":"Import","first_run.running":"Importing\u2026","first_run.dismiss":"Not now","editor.orphans.title":"Orphaned entries","editor.orphans.restore":"Restore","editor.orphans.empty":"No orphaned entries","action.save":"Save","action.cancel":"Cancel","action.clear":"Clear","error.not_loaded":"Topology is not loaded","error.area_not_found":"Area not found","error.edge_not_found":"Edge not found","error.floor_not_found":"Floor not found","error.invalid_enum":"Invalid value","error.invalid_connection":"Invalid connection","error.store_error":"Could not save the change","error.unauthorized":"Admin permission required"};var wt={en:le};function l(s,t={},e="en"){let o=(wt[e]??le)[s]??le[s]??s;for(let[i,n]of Object.entries(t))o=o.replace(`{${i}}`,String(n));return o}function Ct(s){let t=2166136261;for(let e=0;e<s.length;e++)t^=s.charCodeAt(e),t=Math.imul(t,16777619);return t>>>0}var Ot={width:1e3,height:700,margin:90};function Be(s,t={}){let{width:e,height:r,margin:o}={...Ot,...t},i=[...s].sort(),n=new Map,d=i.length;if(d===0)return n;let p=Math.max(1,Math.ceil(Math.sqrt(d))),g=Math.max(1,Math.ceil(d/p)),y=e-2*o,f=r-2*o,E=p>1?y/(p-1):0,C=g>1?f/(g-1):0;return i.forEach((U,Se)=>{let Qe=Se%p,et=Math.floor(Se/p),Ee=Ct(U),tt=((Ee&65535)/65535-.5)*.36,rt=((Ee>>>16&65535)/65535-.5)*.36,ot=p>1?o+Qe*E:e/2,st=g>1?o+et*C:r/2;n.set(U,{x:ot+tt*(E||y),y:st+rt*(C||f)})}),n}function qe(s){return s??"unknown"}function Fe(s){return s??"unknown"}function Ke(s){return s.type===null&&s.environment===null&&s.trust===null}var kt={open:2,door:1,solid:0},Pt={none:"",level:"",stairs:"stairs",ramp:"ramp",elevator:"elevator",ladder:"ladder",hatch:"hatch"};function Mt(s){let t=null,e=-1;for(let r of s){let o=kt[r.barrier]??0;o>e&&(e=o,t=r)}return t}function Ye(s){let t=Mt(s.connections);return t===null?{barrier:"solid",passage:"none",glyph:"",perimeter:s.is_perimeter}:{barrier:t.barrier,passage:t.passage,glyph:Pt[t.passage]??"",perimeter:s.is_perimeter}}var xe="__outdoor__",Lt={unannotated:"unannotated_areas",isolated:"isolated_areas",floors:"indoor_areas_without_floor",bearings:"contradictory_bearings",exterior:"exterior_on_non_outdoor_side"},A=class extends v{constructor(){super(...arguments);this.areas=[];this.edges=[];this.floors=[];this.health=null;this.activeFloor=null;this.focusScope=null}areaFloor(e){return this.hass?.areas?.[e]?.floor_id??xe}areaName(e,r){let o=this.hass?.areas?.[e]?.name;return o||(r.type??e)}flaggedAreas(){if(this.focusScope===null||this.health===null)return new Set;let e=Lt[this.focusScope];if(e===void 0)return new Set;let r=this.health[e];return new Set(Array.isArray(r)?r:[])}visibleAreas(){return this.activeFloor===null?this.areas:this.areas.filter(e=>this.areaFloor(e.area_id)===this.activeFloor)}render(){let e=this.visibleAreas(),r=new Set(e.map(d=>d.area_id)),o=Be(e.map(d=>d.area_id)),i=this.flaggedAreas(),n=this.edges.filter(d=>!d.orphaned_at&&r.has(d.area_a)&&r.has(d.area_b));return c`
-      <svg viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet" role="img">
-        <g class="edges">
-          ${n.map(d=>this.renderEdge(d,o))}
-        </g>
-        <g class="nodes">
-          ${e.map(d=>this.renderNode(d,o,i.has(d.area_id)))}
-        </g>
-      </svg>
-    `}renderEdge(e,r){let o=r.get(e.area_a),i=r.get(e.area_b);if(!o||!i)return h;let n=Ye(e),d=`edge barrier-${n.barrier} ${n.perimeter?"perimeter":""}`;return q`
+var Et=Object.defineProperty;var At=Object.getOwnPropertyDescriptor;var l=(i,r,e,t)=>{for(var o=t>1?void 0:t?At(r,e):r,n=i.length-1,a;n>=0;n--)(a=i[n])&&(o=(t?a(r,e,o):a(o))||o);return t&&o&&Et(r,e,o),o};var de=globalThis,pe=de.ShadowRoot&&(de.ShadyCSS===void 0||de.ShadyCSS.nativeShadow)&&"adoptedStyleSheets"in Document.prototype&&"replace"in CSSStyleSheet.prototype,Ee=Symbol(),ze=new WeakMap,te=class{constructor(r,e,t){if(this._$cssResult$=!0,t!==Ee)throw Error("CSSResult is not constructable. Use `unsafeCSS` or `css` instead.");this.cssText=r,this.t=e}get styleSheet(){let r=this.o,e=this.t;if(pe&&r===void 0){let t=e!==void 0&&e.length===1;t&&(r=ze.get(e)),r===void 0&&((this.o=r=new CSSStyleSheet).replaceSync(this.cssText),t&&ze.set(e,r))}return r}toString(){return this.cssText}},We=i=>new te(typeof i=="string"?i:i+"",void 0,Ee),x=(i,...r)=>{let e=i.length===1?i[0]:r.reduce((t,o,n)=>t+(a=>{if(a._$cssResult$===!0)return a.cssText;if(typeof a=="number")return a;throw Error("Value passed to 'css' function must be a 'css' function result: "+a+". Use 'unsafeCSS' to pass non-literal values, but take care to ensure page security.")})(o)+i[n+1],i[0]);return new te(e,i,Ee)},De=(i,r)=>{if(pe)i.adoptedStyleSheets=r.map(e=>e instanceof CSSStyleSheet?e:e.styleSheet);else for(let e of r){let t=document.createElement("style"),o=de.litNonce;o!==void 0&&t.setAttribute("nonce",o),t.textContent=e.cssText,i.appendChild(t)}},Ae=pe?i=>i:i=>i instanceof CSSStyleSheet?(r=>{let e="";for(let t of r.cssRules)e+=t.cssText;return We(e)})(i):i;var{is:kt,defineProperty:Ot,getOwnPropertyDescriptor:Ct,getOwnPropertyNames:Pt,getOwnPropertySymbols:Lt,getPrototypeOf:Tt}=Object,ue=globalThis,Be=ue.trustedTypes,It=Be?Be.emptyScript:"",Ht=ue.reactiveElementPolyfillSupport,re=(i,r)=>i,oe={toAttribute(i,r){switch(r){case Boolean:i=i?It:null;break;case Object:case Array:i=i==null?i:JSON.stringify(i)}return i},fromAttribute(i,r){let e=i;switch(r){case Boolean:e=i!==null;break;case Number:e=i===null?null:Number(i);break;case Object:case Array:try{e=JSON.parse(i)}catch{e=null}}return e}},he=(i,r)=>!kt(i,r),Ve={attribute:!0,type:String,converter:oe,reflect:!1,useDefault:!1,hasChanged:he};Symbol.metadata??=Symbol("metadata"),ue.litPropertyMetadata??=new WeakMap;var U=class extends HTMLElement{static addInitializer(r){this._$Ei(),(this.l??=[]).push(r)}static get observedAttributes(){return this.finalize(),this._$Eh&&[...this._$Eh.keys()]}static createProperty(r,e=Ve){if(e.state&&(e.attribute=!1),this._$Ei(),this.prototype.hasOwnProperty(r)&&((e=Object.create(e)).wrapped=!0),this.elementProperties.set(r,e),!e.noAccessor){let t=Symbol(),o=this.getPropertyDescriptor(r,t,e);o!==void 0&&Ot(this.prototype,r,o)}}static getPropertyDescriptor(r,e,t){let{get:o,set:n}=Ct(this.prototype,r)??{get(){return this[e]},set(a){this[e]=a}};return{get:o,set(a){let u=o?.call(this);n?.call(this,a),this.requestUpdate(r,u,t)},configurable:!0,enumerable:!0}}static getPropertyOptions(r){return this.elementProperties.get(r)??Ve}static _$Ei(){if(this.hasOwnProperty(re("elementProperties")))return;let r=Tt(this);r.finalize(),r.l!==void 0&&(this.l=[...r.l]),this.elementProperties=new Map(r.elementProperties)}static finalize(){if(this.hasOwnProperty(re("finalized")))return;if(this.finalized=!0,this._$Ei(),this.hasOwnProperty(re("properties"))){let e=this.properties,t=[...Pt(e),...Lt(e)];for(let o of t)this.createProperty(o,e[o])}let r=this[Symbol.metadata];if(r!==null){let e=litPropertyMetadata.get(r);if(e!==void 0)for(let[t,o]of e)this.elementProperties.set(t,o)}this._$Eh=new Map;for(let[e,t]of this.elementProperties){let o=this._$Eu(e,t);o!==void 0&&this._$Eh.set(o,e)}this.elementStyles=this.finalizeStyles(this.styles)}static finalizeStyles(r){let e=[];if(Array.isArray(r)){let t=new Set(r.flat(1/0).reverse());for(let o of t)e.unshift(Ae(o))}else r!==void 0&&e.push(Ae(r));return e}static _$Eu(r,e){let t=e.attribute;return t===!1?void 0:typeof t=="string"?t:typeof r=="string"?r.toLowerCase():void 0}constructor(){super(),this._$Ep=void 0,this.isUpdatePending=!1,this.hasUpdated=!1,this._$Em=null,this._$Ev()}_$Ev(){this._$ES=new Promise(r=>this.enableUpdating=r),this._$AL=new Map,this._$E_(),this.requestUpdate(),this.constructor.l?.forEach(r=>r(this))}addController(r){(this._$EO??=new Set).add(r),this.renderRoot!==void 0&&this.isConnected&&r.hostConnected?.()}removeController(r){this._$EO?.delete(r)}_$E_(){let r=new Map,e=this.constructor.elementProperties;for(let t of e.keys())this.hasOwnProperty(t)&&(r.set(t,this[t]),delete this[t]);r.size>0&&(this._$Ep=r)}createRenderRoot(){let r=this.shadowRoot??this.attachShadow(this.constructor.shadowRootOptions);return De(r,this.constructor.elementStyles),r}connectedCallback(){this.renderRoot??=this.createRenderRoot(),this.enableUpdating(!0),this._$EO?.forEach(r=>r.hostConnected?.())}enableUpdating(r){}disconnectedCallback(){this._$EO?.forEach(r=>r.hostDisconnected?.())}attributeChangedCallback(r,e,t){this._$AK(r,t)}_$ET(r,e){let t=this.constructor.elementProperties.get(r),o=this.constructor._$Eu(r,t);if(o!==void 0&&t.reflect===!0){let n=(t.converter?.toAttribute!==void 0?t.converter:oe).toAttribute(e,t.type);this._$Em=r,n==null?this.removeAttribute(o):this.setAttribute(o,n),this._$Em=null}}_$AK(r,e){let t=this.constructor,o=t._$Eh.get(r);if(o!==void 0&&this._$Em!==o){let n=t.getPropertyOptions(o),a=typeof n.converter=="function"?{fromAttribute:n.converter}:n.converter?.fromAttribute!==void 0?n.converter:oe;this._$Em=o;let u=a.fromAttribute(e,n.type);this[o]=u??this._$Ej?.get(o)??u,this._$Em=null}}requestUpdate(r,e,t,o=!1,n){if(r!==void 0){let a=this.constructor;if(o===!1&&(n=this[r]),t??=a.getPropertyOptions(r),!((t.hasChanged??he)(n,e)||t.useDefault&&t.reflect&&n===this._$Ej?.get(r)&&!this.hasAttribute(a._$Eu(r,t))))return;this.C(r,e,t)}this.isUpdatePending===!1&&(this._$ES=this._$EP())}C(r,e,{useDefault:t,reflect:o,wrapped:n},a){t&&!(this._$Ej??=new Map).has(r)&&(this._$Ej.set(r,a??e??this[r]),n!==!0||a!==void 0)||(this._$AL.has(r)||(this.hasUpdated||t||(e=void 0),this._$AL.set(r,e)),o===!0&&this._$Em!==r&&(this._$Eq??=new Set).add(r))}async _$EP(){this.isUpdatePending=!0;try{await this._$ES}catch(e){Promise.reject(e)}let r=this.scheduleUpdate();return r!=null&&await r,!this.isUpdatePending}scheduleUpdate(){return this.performUpdate()}performUpdate(){if(!this.isUpdatePending)return;if(!this.hasUpdated){if(this.renderRoot??=this.createRenderRoot(),this._$Ep){for(let[o,n]of this._$Ep)this[o]=n;this._$Ep=void 0}let t=this.constructor.elementProperties;if(t.size>0)for(let[o,n]of t){let{wrapped:a}=n,u=this[o];a!==!0||this._$AL.has(o)||u===void 0||this.C(o,void 0,n,u)}}let r=!1,e=this._$AL;try{r=this.shouldUpdate(e),r?(this.willUpdate(e),this._$EO?.forEach(t=>t.hostUpdate?.()),this.update(e)):this._$EM()}catch(t){throw r=!1,this._$EM(),t}r&&this._$AE(e)}willUpdate(r){}_$AE(r){this._$EO?.forEach(e=>e.hostUpdated?.()),this.hasUpdated||(this.hasUpdated=!0,this.firstUpdated(r)),this.updated(r)}_$EM(){this._$AL=new Map,this.isUpdatePending=!1}get updateComplete(){return this.getUpdateComplete()}getUpdateComplete(){return this._$ES}shouldUpdate(r){return!0}update(r){this._$Eq&&=this._$Eq.forEach(e=>this._$ET(e,this[e])),this._$EM()}updated(r){}firstUpdated(r){}};U.elementStyles=[],U.shadowRootOptions={mode:"open"},U[re("elementProperties")]=new Map,U[re("finalized")]=new Map,Ht?.({ReactiveElement:U}),(ue.reactiveElementVersions??=[]).push("2.1.2");var Oe=globalThis,Fe=i=>i,me=Oe.trustedTypes,Ge=me?me.createPolicy("lit-html",{createHTML:i=>i}):void 0,Ce="$lit$",j=`lit$${Math.random().toFixed(9).slice(2)}$`,Pe="?"+j,Mt=`<${Pe}>`,G=document,ne=()=>G.createComment(""),se=i=>i===null||typeof i!="object"&&typeof i!="function",Le=Array.isArray,Qe=i=>Le(i)||typeof i?.[Symbol.iterator]=="function",ke=`[ 	
+\f\r]`,ie=/<(?:(!--|\/[^a-zA-Z])|(\/?[a-zA-Z][^>\s]*)|(\/?$))/g,qe=/-->/g,Ke=/>/g,V=RegExp(`>|${ke}(?:([^\\s"'>=/]+)(${ke}*=${ke}*(?:[^ 	
+\f\r"'\`<>=]|("|')|))|$)`,"g"),Ye=/'/g,Xe=/"/g,Ze=/^(?:script|style|textarea|title)$/i,Te=i=>(r,...e)=>({_$litType$:i,strings:r,values:e}),c=Te(1),Y=Te(2),vr=Te(3),P=Symbol.for("lit-noChange"),h=Symbol.for("lit-nothing"),Je=new WeakMap,F=G.createTreeWalker(G,129);function et(i,r){if(!Le(i)||!i.hasOwnProperty("raw"))throw Error("invalid template strings array");return Ge!==void 0?Ge.createHTML(r):r}var tt=(i,r)=>{let e=i.length-1,t=[],o,n=r===2?"<svg>":r===3?"<math>":"",a=ie;for(let u=0;u<e;u++){let d=i[u],f,$,m=-1,v=0;for(;v<d.length&&(a.lastIndex=v,$=a.exec(d),$!==null);)v=a.lastIndex,a===ie?$[1]==="!--"?a=qe:$[1]!==void 0?a=Ke:$[2]!==void 0?(Ze.test($[2])&&(o=RegExp("</"+$[2],"g")),a=V):$[3]!==void 0&&(a=V):a===V?$[0]===">"?(a=o??ie,m=-1):$[1]===void 0?m=-2:(m=a.lastIndex-$[2].length,f=$[1],a=$[3]===void 0?V:$[3]==='"'?Xe:Ye):a===Xe||a===Ye?a=V:a===qe||a===Ke?a=ie:(a=V,o=void 0);let E=a===V&&i[u+1].startsWith("/>")?" ":"";n+=a===ie?d+Mt:m>=0?(t.push(f),d.slice(0,m)+Ce+d.slice(m)+j+E):d+j+(m===-2?u:E)}return[et(i,n+(i[e]||"<?>")+(r===2?"</svg>":r===3?"</math>":"")),t]},ae=class i{constructor({strings:r,_$litType$:e},t){let o;this.parts=[];let n=0,a=0,u=r.length-1,d=this.parts,[f,$]=tt(r,e);if(this.el=i.createElement(f,t),F.currentNode=this.el.content,e===2||e===3){let m=this.el.content.firstChild;m.replaceWith(...m.childNodes)}for(;(o=F.nextNode())!==null&&d.length<u;){if(o.nodeType===1){if(o.hasAttributes())for(let m of o.getAttributeNames())if(m.endsWith(Ce)){let v=$[a++],E=o.getAttribute(m).split(j),I=/([.?@])?(.*)/.exec(v);d.push({type:1,index:n,name:I[2],strings:E,ctor:I[1]==="."?ge:I[1]==="?"?ve:I[1]==="@"?be:K}),o.removeAttribute(m)}else m.startsWith(j)&&(d.push({type:6,index:n}),o.removeAttribute(m));if(Ze.test(o.tagName)){let m=o.textContent.split(j),v=m.length-1;if(v>0){o.textContent=me?me.emptyScript:"";for(let E=0;E<v;E++)o.append(m[E],ne()),F.nextNode(),d.push({type:2,index:++n});o.append(m[v],ne())}}}else if(o.nodeType===8)if(o.data===Pe)d.push({type:2,index:n});else{let m=-1;for(;(m=o.data.indexOf(j,m+1))!==-1;)d.push({type:7,index:n}),m+=j.length-1}n++}}static createElement(r,e){let t=G.createElement("template");return t.innerHTML=r,t}};function q(i,r,e=i,t){if(r===P)return r;let o=t!==void 0?e._$Co?.[t]:e._$Cl,n=se(r)?void 0:r._$litDirective$;return o?.constructor!==n&&(o?._$AO?.(!1),n===void 0?o=void 0:(o=new n(i),o._$AT(i,e,t)),t!==void 0?(e._$Co??=[])[t]=o:e._$Cl=o),o!==void 0&&(r=q(i,o._$AS(i,r.values),o,t)),r}var fe=class{constructor(r,e){this._$AV=[],this._$AN=void 0,this._$AD=r,this._$AM=e}get parentNode(){return this._$AM.parentNode}get _$AU(){return this._$AM._$AU}u(r){let{el:{content:e},parts:t}=this._$AD,o=(r?.creationScope??G).importNode(e,!0);F.currentNode=o;let n=F.nextNode(),a=0,u=0,d=t[0];for(;d!==void 0;){if(a===d.index){let f;d.type===2?f=new J(n,n.nextSibling,this,r):d.type===1?f=new d.ctor(n,d.name,d.strings,this,r):d.type===6&&(f=new ye(n,this,r)),this._$AV.push(f),d=t[++u]}a!==d?.index&&(n=F.nextNode(),a++)}return F.currentNode=G,o}p(r){let e=0;for(let t of this._$AV)t!==void 0&&(t.strings!==void 0?(t._$AI(r,t,e),e+=t.strings.length-2):t._$AI(r[e])),e++}},J=class i{get _$AU(){return this._$AM?._$AU??this._$Cv}constructor(r,e,t,o){this.type=2,this._$AH=h,this._$AN=void 0,this._$AA=r,this._$AB=e,this._$AM=t,this.options=o,this._$Cv=o?.isConnected??!0}get parentNode(){let r=this._$AA.parentNode,e=this._$AM;return e!==void 0&&r?.nodeType===11&&(r=e.parentNode),r}get startNode(){return this._$AA}get endNode(){return this._$AB}_$AI(r,e=this){r=q(this,r,e),se(r)?r===h||r==null||r===""?(this._$AH!==h&&this._$AR(),this._$AH=h):r!==this._$AH&&r!==P&&this._(r):r._$litType$!==void 0?this.$(r):r.nodeType!==void 0?this.T(r):Qe(r)?this.k(r):this._(r)}O(r){return this._$AA.parentNode.insertBefore(r,this._$AB)}T(r){this._$AH!==r&&(this._$AR(),this._$AH=this.O(r))}_(r){this._$AH!==h&&se(this._$AH)?this._$AA.nextSibling.data=r:this.T(G.createTextNode(r)),this._$AH=r}$(r){let{values:e,_$litType$:t}=r,o=typeof t=="number"?this._$AC(r):(t.el===void 0&&(t.el=ae.createElement(et(t.h,t.h[0]),this.options)),t);if(this._$AH?._$AD===o)this._$AH.p(e);else{let n=new fe(o,this),a=n.u(this.options);n.p(e),this.T(a),this._$AH=n}}_$AC(r){let e=Je.get(r.strings);return e===void 0&&Je.set(r.strings,e=new ae(r)),e}k(r){Le(this._$AH)||(this._$AH=[],this._$AR());let e=this._$AH,t,o=0;for(let n of r)o===e.length?e.push(t=new i(this.O(ne()),this.O(ne()),this,this.options)):t=e[o],t._$AI(n),o++;o<e.length&&(this._$AR(t&&t._$AB.nextSibling,o),e.length=o)}_$AR(r=this._$AA.nextSibling,e){for(this._$AP?.(!1,!0,e);r!==this._$AB;){let t=Fe(r).nextSibling;Fe(r).remove(),r=t}}setConnected(r){this._$AM===void 0&&(this._$Cv=r,this._$AP?.(r))}},K=class{get tagName(){return this.element.tagName}get _$AU(){return this._$AM._$AU}constructor(r,e,t,o,n){this.type=1,this._$AH=h,this._$AN=void 0,this.element=r,this.name=e,this._$AM=o,this.options=n,t.length>2||t[0]!==""||t[1]!==""?(this._$AH=Array(t.length-1).fill(new String),this.strings=t):this._$AH=h}_$AI(r,e=this,t,o){let n=this.strings,a=!1;if(n===void 0)r=q(this,r,e,0),a=!se(r)||r!==this._$AH&&r!==P,a&&(this._$AH=r);else{let u=r,d,f;for(r=n[0],d=0;d<n.length-1;d++)f=q(this,u[t+d],e,d),f===P&&(f=this._$AH[d]),a||=!se(f)||f!==this._$AH[d],f===h?r=h:r!==h&&(r+=(f??"")+n[d+1]),this._$AH[d]=f}a&&!o&&this.j(r)}j(r){r===h?this.element.removeAttribute(this.name):this.element.setAttribute(this.name,r??"")}},ge=class extends K{constructor(){super(...arguments),this.type=3}j(r){this.element[this.name]=r===h?void 0:r}},ve=class extends K{constructor(){super(...arguments),this.type=4}j(r){this.element.toggleAttribute(this.name,!!r&&r!==h)}},be=class extends K{constructor(r,e,t,o,n){super(r,e,t,o,n),this.type=5}_$AI(r,e=this){if((r=q(this,r,e,0)??h)===P)return;let t=this._$AH,o=r===h&&t!==h||r.capture!==t.capture||r.once!==t.once||r.passive!==t.passive,n=r!==h&&(t===h||o);o&&this.element.removeEventListener(this.name,this,t),n&&this.element.addEventListener(this.name,this,r),this._$AH=r}handleEvent(r){typeof this._$AH=="function"?this._$AH.call(this.options?.host??this.element,r):this._$AH.handleEvent(r)}},ye=class{constructor(r,e,t){this.element=r,this.type=6,this._$AN=void 0,this._$AM=e,this.options=t}get _$AU(){return this._$AM._$AU}_$AI(r){q(this,r)}},rt={M:Ce,P:j,A:Pe,C:1,L:tt,R:fe,D:Qe,V:q,I:J,H:K,N:ve,U:be,B:ge,F:ye},Rt=Oe.litHtmlPolyfillSupport;Rt?.(ae,J),(Oe.litHtmlVersions??=[]).push("3.3.3");var ot=(i,r,e)=>{let t=e?.renderBefore??r,o=t._$litPart$;if(o===void 0){let n=e?.renderBefore??null;t._$litPart$=o=new J(r.insertBefore(ne(),n),n,void 0,e??{})}return o._$AI(i),o};var Ie=globalThis,y=class extends U{constructor(){super(...arguments),this.renderOptions={host:this},this._$Do=void 0}createRenderRoot(){let r=super.createRenderRoot();return this.renderOptions.renderBefore??=r.firstChild,r}update(r){let e=this.render();this.hasUpdated||(this.renderOptions.isConnected=this.isConnected),super.update(r),this._$Do=ot(e,this.renderRoot,this.renderOptions)}connectedCallback(){super.connectedCallback(),this._$Do?.setConnected(!0)}disconnectedCallback(){super.disconnectedCallback(),this._$Do?.setConnected(!1)}render(){return P}};y._$litElement$=!0,y.finalized=!0,Ie.litElementHydrateSupport?.({LitElement:y});var Nt=Ie.litElementPolyfillSupport;Nt?.({LitElement:y});(Ie.litElementVersions??=[]).push("4.2.2");var S=i=>(r,e)=>{e!==void 0?e.addInitializer(()=>{customElements.define(i,r)}):customElements.define(i,r)};var Ut={attribute:!0,type:String,converter:oe,reflect:!1,hasChanged:he},jt=(i=Ut,r,e)=>{let{kind:t,metadata:o}=e,n=globalThis.litPropertyMetadata.get(o);if(n===void 0&&globalThis.litPropertyMetadata.set(o,n=new Map),t==="setter"&&((i=Object.create(i)).wrapped=!0),n.set(e.name,i),t==="accessor"){let{name:a}=e;return{set(u){let d=r.get.call(this);r.set.call(this,u),this.requestUpdate(a,d,i,!0,u)},init(u){return u!==void 0&&this.C(a,void 0,i,u),u}}}if(t==="setter"){let{name:a}=e;return function(u){let d=this[a];r.call(this,u),this.requestUpdate(a,d,i,!0,u)}}throw Error("Unsupported decorator location: "+t)};function p(i){return(r,e)=>typeof e=="object"?jt(i,r,e):((t,o,n)=>{let a=o.hasOwnProperty(n);return o.constructor.createProperty(n,t),a?Object.getOwnPropertyDescriptor(o,n):void 0})(i,r,e)}function b(i){return p({...i,state:!0,attribute:!1})}var g=class extends Error{constructor(r,e){super(e),this.name="TopologyError",this.code=r}};function zt(i){if(i&&typeof i=="object"&&"code"in i){let r=i;return new g(r.code,r.message??r.code)}return new g("store_error",i instanceof Error?i.message:String(i))}var xe=class{constructor(r){this.connection=r}async send(r){try{return await this.connection.sendMessagePromise(r)}catch(e){throw zt(e)}}listAnnotations(){return this.send({type:"topology/list_annotations"})}health(){return this.send({type:"topology/health"})}neighbors(r){return this.send({type:"topology/neighbors",area_id:r})}path(r,e,t=!1){return this.send({type:"topology/path",from:r,to:e,traversable_only:t})}subscribeUpdates(r){return this.connection.subscribeMessage(r,{type:"topology/subscribe_updates"})}updateArea(r,e){return this.send({type:"topology/update_area",area_id:r,annotation:e})}upsertEdge(r,e,t){return this.send({type:"topology/upsert_edge",area_a:r,area_b:e,connections:t})}deleteEdge(r){return this.send({type:"topology/delete_edge",edge_id:r})}restoreEdge(r){return this.send({type:"topology/restore_edge",edge_id:r})}setBeyond(r,e,t){return this.send({type:"topology/set_beyond",area_id:r,side:e,beyond:t})}setExteriorConnections(r,e){return this.send({type:"topology/set_exterior_connections",area_id:r,connections:e})}setFloorLevel(r,e){return this.send({type:"topology/set_floor_level",floor_id:r,level:e})}updateHomeConfig(r){return this.send({type:"topology/update_home_config",...r})}};var _e=class{constructor(r,e={}){this.listeners=new Set;this._state={snapshot:null,health:null,connected:!0,error:null};this.unsubscribe=null;this.coalesceTimer=null;this.disposed=!1;this.client=r,this.coalesceMs=e.coalesceMs??150}get state(){return this._state}addListener(r){return this.listeners.add(r),()=>this.listeners.delete(r)}setState(r){this._state={...this._state,...r};for(let e of this.listeners)e()}async connect(){await this.reseed(),!this.disposed&&(this.unsubscribe=await this.client.subscribeUpdates(r=>this.handleUpdate(r)))}async reseed(){try{let[r,e]=await Promise.all([this.client.listAnnotations(),this.client.health()]);this.setState({snapshot:r,health:e,error:null})}catch(r){this.setState({error:r instanceof Error?r.message:String(r)})}}handleUpdate(r){this.coalesceTimer!==null&&clearTimeout(this.coalesceTimer),this.coalesceTimer=setTimeout(()=>{this.coalesceTimer=null,this.reseed()},this.coalesceMs)}handleConnectionState(r){let e=this._state.connected;this.setState({connected:r}),r&&!e&&this.reseed()}async dispose(){if(this.disposed=!0,this.coalesceTimer!==null&&(clearTimeout(this.coalesceTimer),this.coalesceTimer=null),this.unsubscribe!==null){let r=this.unsubscribe;this.unsubscribe=null,await r()}this.listeners.clear()}};var Wt=["unannotated","isolated","floors","bearings","exterior","geometry","orphans"],Dt={unannotated:"map",isolated:"map",floors:"floors",bearings:"map",exterior:"map",geometry:"map",orphans:"orphans"};function it(i){return i===null?"":`?focus=${i}`}function Bt(i){return i!==null&&Wt.includes(i)}function nt(i){let r=i.startsWith("?")?i.slice(1):i,t=new URLSearchParams(r).get("focus");return Bt(t)?{view:Dt[t],focus:t}:{view:"map",focus:null}}var Q={"panel.title":"Topology","panel.floor.outdoor":"Outdoor / unfloored","panel.floor.all":"All floors","panel.floor.switcher":"Floor","panel.nav.home":"Home configuration","panel.nav.floors":"Floor levels","panel.nav.orphans":"Orphaned entries","panel.nav.back":"Back to home configuration","banner.reconnecting":"Reconnecting\u2026","banner.error":"Could not load topology data","map.needs_annotation":"Needs annotation","map.orphaned":"Orphaned (registry entry gone)","map.legend.trust":"Trust","map.legend.environment":"Environment","map.hint":"Drag to pan, scroll to zoom, double-click to reset.","map.reset_view":"Reset view","map.empty":"No areas to show. Create areas in Home Assistant first.","map.band.unfloored":"No floor","map.offfloor":"{count} connection(s) lead to another floor \u2014 switch to All floors to see them.","sidebar.unannotated":"Unannotated areas","sidebar.isolated":"Isolated areas","sidebar.bearings":"Contradictory bearings","sidebar.spanning":"Connections spanning several floors","sidebar.no_climb":"Connections between floors with no way to climb","sidebar.none":"Nothing flagged","editor.area.title":"Area annotation","editor.area.type":"Type","editor.area.type.hint":"A shortcut, not a setting: picking a type fills in Environment and Trust below, which are the values automations actually read. Change them freely afterwards \u2014 and leave Type empty if none fits.","editor.area.type.custom":"Custom type\u2026","editor.area.type.custom_label":"Custom type","editor.area.environment":"Environment","editor.area.environment.hint":"Whether this space is enclosed, open to the weather, or in between.","editor.area.trust":"Trust","editor.area.trust.hint":"How exposed the space is to people: private (household only), shared (guests, other tenants), public (anyone). A boundary where this changes becomes part of the perimeter.","editor.area.unsaved":"Unsaved changes","editor.edge.title":"Connection","editor.edge.preset":"Kind","editor.edge.add":"Add connection","editor.edge.delete":"Delete connection","editor.edge.between":"{a} \u2194 {b}","editor.edge.axis.horizontal":"Same floor","editor.edge.axis.vertical_up":"{b} is {levels} floor(s) above {a}","editor.edge.axis.vertical_down":"{b} is {levels} floor(s) below {a}","editor.edge.axis.unknown":"Floor relationship unknown (assign both areas to a floor)","editor.edge.hint":"A boundary can carry several ways across \u2014 a stair and a lift beside it are two entries here.","editor.neighbors.title":"Neighbours","editor.neighbors.hint":"Which areas this one physically borders. This is what makes the adjacency graph \u2014 automations use it to reason about rooms next to, above, and below each other.","editor.neighbors.none":"No neighbours declared yet","editor.neighbors.add":"Add neighbour","editor.neighbors.area":"Area","editor.neighbors.pick":"Choose an area\u2026","editor.neighbors.group.same":"Same floor","editor.neighbors.group.above":"Floor above","editor.neighbors.group.below":"Floor below","editor.neighbors.group.distant":"Other floors (unusual)","editor.neighbors.group.unknown":"No floor assigned","editor.neighbors.distant_warning":"These areas are more than one floor apart, so they rarely share a boundary. Check the floor assignments if that is unexpected.","editor.neighbors.edit":"Edit","editor.beyond.title":"Outer walls","editor.beyond.hint":"For each side that is NOT shared with another one of your areas, say what is on the other side. This is what makes a wall count as exterior, and it decides where a window can sit.","editor.beyond.interior":"Interior wall \u2014 borders {areas}","editor.beyond.unset":"Not specified","editor.beyond.suggest":"Set to {value}, based on your occupancy extent","editor.exterior.title":"Windows & outside doors","editor.exterior.hint":"Openings that leave your home entirely. Set the side each one faces \u2014 without it the opening cannot be matched against the outer wall it sits in, so nothing can use it.","editor.exterior.none":"No windows or outside doors declared","editor.exterior.sideless":"An opening without a side cannot be matched to the outer wall it sits in, so nothing will use it. Pick a side for each one.","editor.exterior.outer_sides":"Outer walls declared for this area: {sides}.","editor.exterior.beyond_trust":"Trust beyond","editor.exterior.beyond_trust.hint":"Who can reach the far side. Left empty it counts as public, which makes the opening part of the perimeter.","editor.connection.side":"Side","editor.connection.side.hint":"Rough compass bearing of the wall this sits in.","editor.connection.glazed":"Glazed (lets daylight through)","editor.connection.sensor":"Open/close sensor","editor.connection.sensor.hint":"Bind a binary sensor to make this opening observable. Only bound openings can turn the perimeter sensor on.","editor.connection.sensor.none":"Not bound","editor.connection.sensor.unavailable":"Only a door-type kind can carry a sensor","editor.connection.override":"Always treat as perimeter","editor.connection.override.hint":"Force this boundary into the perimeter even when both sides share the same trust class \u2014 for example the door between a main flat and an annexe.","editor.floor.title":"Floor levels","editor.floor.hint":"Levels come from Home Assistant and only say what sits above what \u2014 0 is a perfectly normal ground floor. Topology can fill in a level for a floor that has none; a level set in Home Assistant always wins.","editor.floor.effective":"Effective level","editor.floor.override":"Override","editor.floor.from_registry":"From Home Assistant","editor.floor.unset":"No level set","editor.home.title":"Home configuration","editor.home.occupancy":"Occupancy extent","editor.home.occupancy.hint":"Whether you model a whole property or one unit inside a larger building. Recorded for consumers; it does not change any derivation.","editor.home.threshold":"Unannotated repair threshold","editor.home.threshold.hint":"Raise a repair notice once at least this many areas are still unannotated.","editor.home.projection":"Label projection","editor.home.projection.hint":"Mirror annotations onto Home Assistant areas as `topology:<dimension>:<value>` labels so automations can target them directly.","editor.home.project_environment":"Project environment labels","editor.home.project_type":"Project type labels","editor.home.project_trust":"Project trust labels","first_run.title":"Seed annotations from Home Assistant","first_run.hint":"One-shot import from the area registry. It only fills in annotations that are still empty and never overwrites what you have set.","first_run.source.aliases":"Import area aliases","first_run.source.labels":"Import area labels","first_run.import":"Import","first_run.running":"Importing\u2026","first_run.dismiss":"Not now","editor.orphans.title":"Orphaned entries","editor.orphans.restore":"Restore","editor.orphans.empty":"No orphaned entries","action.save":"Save","action.cancel":"Cancel","action.clear":"Clear","action.add":"Add","action.remove":"Remove","action.close":"Close","enum.environment.indoor":"Indoor","enum.environment.outdoor":"Outdoor","enum.environment.semi_outdoor":"Semi-outdoor","enum.trust.private":"Private","enum.trust.shared":"Shared","enum.trust.public":"Public","enum.beyond.outdoor":"Open air","enum.beyond.neighbor":"Neighbouring unit","enum.beyond.earth":"Earth (buried)","enum.side.N":"North","enum.side.E":"East","enum.side.S":"South","enum.side.W":"West","enum.passage.none":"No way through","enum.passage.level":"Step-free","enum.passage.stairs":"Stairs","enum.passage.ramp":"Ramp","enum.passage.elevator":"Lift","enum.passage.ladder":"Ladder","enum.passage.hatch":"Hatch","enum.barrier.open":"Open","enum.barrier.door":"Door","enum.barrier.solid":"Solid","enum.preset.interior_door":"Interior door","enum.preset.open_passage":"Open passage","enum.preset.shared_wall":"Shared wall","enum.preset.open_stair":"Open stair","enum.preset.enclosed_stair":"Enclosed stair","enum.preset.lift":"Lift","enum.preset.loft_ladder":"Loft ladder","enum.preset.ramp":"Ramp","enum.preset.hatch":"Hatch","enum.preset.window":"Window","enum.preset.outside_door":"Outside door","enum.occupancy.whole_property":"Whole property","enum.occupancy.unit_within_building":"Unit within a building","enum.type.bedroom":"Bedroom","enum.type.living":"Living room","enum.type.kitchen":"Kitchen","enum.type.dining":"Dining room","enum.type.bathroom":"Bathroom","enum.type.hallway":"Hallway","enum.type.office":"Office","enum.type.utility":"Utility room","enum.type.storage":"Storage","enum.type.garage":"Garage","enum.type.balcony":"Balcony","enum.type.terrace":"Terrace","enum.type.outdoor":"Outdoors","error.not_loaded":"Topology is not loaded","error.area_not_found":"Area not found","error.edge_not_found":"Edge not found","error.floor_not_found":"Floor not found","error.invalid_enum":"Invalid value","error.invalid_connection":"Invalid connection","error.store_error":"Could not save the change","error.unauthorized":"Admin permission required"};var st={en:Q};function s(i,r={},e="en"){let o=(st[e]??Q)[i]??Q[i]??i;for(let[n,a]of Object.entries(r))o=o.replace(`{${n}}`,String(a));return o}function _(i,r,e="en"){let t=`enum.${i}.${r}`;return(st[e]??Q)[t]??Q[t]??r}var Vt={nodeWidth:150,nodeHeight:64,gapX:32,rowGap:24,bandGap:56,padding:40,maxColumns:5};function at(i,r){if(i.length===0)return[];let e=Math.min(i.length,Math.max(1,r)),t=[];for(let o=0;o<i.length;o+=e)t.push(i.slice(o,o+e));return t}function He(i,r=[],e={}){let t={...Vt,...e},o=new Map,n=[];if(i.length===0)return{positions:o,bands:n,extent:{x:0,y:0,width:t.nodeWidth,height:t.nodeHeight}};let a=new Map;for(let E of i){let I=E.floorId,ee=a.get(I);ee===void 0?a.set(I,[E]):ee.push(E)}let u=[];for(let E of r)a.has(E)&&u.push(E);for(let E of a.keys())u.includes(E)||u.push(E);let d=1;for(let E of u)for(let I of at(a.get(E)??[],t.maxColumns))d=Math.max(d,I.length);let f=d*t.nodeWidth+(d-1)*t.gapX,$=t.padding+f/2,m=t.padding;for(let E of u){let I=at(a.get(E)??[],t.maxColumns),ee=m;for(let Se of I){let wt=Se.length*t.nodeWidth+(Se.length-1)*t.gapX,je=$-wt/2;for(let St of Se)o.set(St.areaId,{x:je+t.nodeWidth/2,y:m+t.nodeHeight/2}),je+=t.nodeWidth+t.gapX;m+=t.nodeHeight+t.rowGap}m=m-t.rowGap+t.bandGap,n.push({floorId:E,y:ee,height:m-t.bandGap-ee})}let v=m-t.bandGap+t.padding;return{positions:o,bands:n,extent:{x:0,y:0,width:f+2*t.padding,height:v}}}function lt(i){return i??"unknown"}function ct(i){return i??"unknown"}function dt(i){return i.type===null&&i.environment===null&&i.trust===null}var Ft={open:2,door:1,solid:0},Gt={none:"",level:"",stairs:"stairs",ramp:"ramp",elevator:"elevator",ladder:"ladder",hatch:"hatch"};function qt(i){let r=null,e=-1;for(let t of i){let o=Ft[t.barrier]??0;o>e&&(e=o,r=t)}return r}function pt(i){let r=qt(i.connections);return r===null?{barrier:"solid",passage:"none",glyph:"",perimeter:i.is_perimeter}:{barrier:r.barrier,passage:r.passage,glyph:Gt[r.passage]??"",perimeter:i.is_perimeter}}var ce="__outdoor__",Kt={unannotated:"unannotated_areas",isolated:"isolated_areas",floors:"indoor_areas_without_floor",bearings:"contradictory_bearings",exterior:"exterior_on_non_outdoor_side"},Z=150,le=64,Yt=.4,Xt=4,O=class extends y{constructor(){super(...arguments);this.areas=[];this.edges=[];this.floors=[];this.health=null;this.activeFloor=null;this.focusScope=null;this.selectedAreaId=null;this.selectedEdgeId=null;this.viewOverride=null;this.panStart=null;this.onWheel=e=>{e.preventDefault();let t=this.currentView(),o=this.contentExtent(),n=e.deltaY>0?1.15:1/1.15,a=t.width*n;if(o.width/a<Yt||o.width/a>Xt)return;let u=t.height*n,{x:d,y:f}=this.toSvgPoint(e,t);this.viewOverride={x:d-(d-t.x)*a/t.width,y:f-(f-t.y)*u/t.height,width:a,height:u}};this.onPointerDown=e=>{if(e.target.closest(".node, .edge")!==null)return;let t=this.currentView();this.panStart={pointerId:e.pointerId,x:e.clientX,y:e.clientY,view:t},e.currentTarget.setPointerCapture(e.pointerId)};this.onPointerMove=e=>{let t=this.panStart;if(t===null||t.pointerId!==e.pointerId)return;let n=e.currentTarget.getBoundingClientRect(),a=Math.min(n.width/t.view.width,n.height/t.view.height)||1;this.viewOverride={...t.view,x:t.view.x-(e.clientX-t.x)/a,y:t.view.y-(e.clientY-t.y)/a}};this.onPointerUp=e=>{this.panStart?.pointerId===e.pointerId&&(this.panStart=null)};this.resetView=()=>{this.viewOverride=null}}areaFloor(e){return this.hass?.areas?.[e]?.floor_id??ce}areaName(e,t){let o=this.hass?.areas?.[e]?.name;return o||(t.type??e)}floorName(e){return e===null||e===ce?s("panel.floor.outdoor"):this.hass?.floors?.[e]?.name??e}flaggedEdges(){return this.focusScope!=="geometry"||this.health===null?new Set:new Set([...this.health.edges_spanning_multiple_floors??[],...this.health.vertical_edges_without_vertical_passage??[]])}flaggedAreas(){if(this.focusScope===null||this.health===null)return new Set;let e=Kt[this.focusScope];if(e===void 0)return new Set;let t=this.health[e];return new Set(Array.isArray(t)?t:[])}visibleAreas(){return this.activeFloor===null?this.areas:this.areas.filter(e=>this.areaFloor(e.area_id)===this.activeFloor)}floorOrder(){return[...this.floors.map(e=>e.floor_id),ce]}render(){let e=this.visibleAreas();if(e.length===0)return c`<div class="empty">${s("map.empty")}</div>`;let t=new Set(e.map(v=>v.area_id)),o=e.map(v=>({areaId:v.area_id,floorId:this.areaFloor(v.area_id)})),n=He(o,this.floorOrder(),{nodeWidth:Z,nodeHeight:le}),a=this.flaggedAreas(),u=this.flaggedEdges(),d=this.edges.filter(v=>!v.orphaned_at&&t.has(v.area_a)&&t.has(v.area_b)),f=this.edges.filter(v=>!v.orphaned_at&&t.has(v.area_a)!==t.has(v.area_b)).length,$=this.viewOverride??n.extent,m=`${$.x} ${$.y} ${$.width} ${$.height}`;return c`
+      <div class="wrap">
+        <svg
+          viewBox=${m}
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          @wheel=${this.onWheel}
+          @pointerdown=${this.onPointerDown}
+          @pointermove=${this.onPointerMove}
+          @pointerup=${this.onPointerUp}
+          @pointercancel=${this.onPointerUp}
+          @dblclick=${this.resetView}
+        >
+          <g class="bands">
+            ${n.bands.length>1?n.bands.map(v=>this.renderBand(v,n.extent)):h}
+          </g>
+          <g class="edges">
+            ${d.map(v=>this.renderEdge(v,n.positions,u.has(v.edge_id)))}
+          </g>
+          <g class="nodes">
+            ${e.map(v=>this.renderNode(v,n.positions,a.has(v.area_id)))}
+          </g>
+        </svg>
+        ${this.renderLegend()}
+        <div class="overlay">
+          ${this.viewOverride!==null?c`<button class="reset" @click=${this.resetView}>${s("map.reset_view")}</button>`:h}
+          ${f>0?c`<p class="offfloor">${s("map.offfloor",{count:f})}</p>`:h}
+          <p class="hint">${s("map.hint")}</p>
+        </div>
+      </div>
+    `}renderLegend(){let e=["private","shared","public"],t=["indoor","semi_outdoor","outdoor"];return c`
+      <div class="legend">
+        <span class="group">
+          <span class="caption">${s("map.legend.trust")}</span>
+          ${e.map(o=>c`
+              <span class="item">
+                <span class="swatch trust-${o}"></span>${_("trust",o)}
+              </span>
+            `)}
+        </span>
+        <span class="group">
+          <span class="caption">${s("map.legend.environment")}</span>
+          ${t.map(o=>c`
+              <span class="item">
+                <span class="swatch env-${o}"></span>${_("environment",o)}
+              </span>
+            `)}
+        </span>
+      </div>
+    `}renderBand(e,t){return Y`
+      <g class="band">
+        <rect x="0" y=${e.y-12} width=${t.width} height=${e.height+24} rx="12"></rect>
+        <text class="band-label" x="12" y=${e.y-18}>${this.floorName(e.floorId)}</text>
+      </g>
+    `}renderEdge(e,t,o=!1){let n=t.get(e.area_a),a=t.get(e.area_b);if(!n||!a)return h;let u=pt(e),d=e.edge_id===this.selectedEdgeId,f=["edge",`barrier-${u.barrier}`,u.perimeter?"perimeter":"",o?"flagged":"",d?"selected":""].join(" ");return Y`
       <line
-        class=${d}
-        x1=${o.x} y1=${o.y} x2=${i.x} y2=${i.y}
+        class=${f}
+        x1=${n.x} y1=${n.y} x2=${a.x} y2=${a.y}
         tabindex="0"
         @click=${()=>this.emitEdge(e)}
-        @keydown=${p=>this.onKey(p,()=>this.emitEdge(e))}
+        @keydown=${$=>this.onKey($,()=>this.emitEdge(e))}
       ></line>
-      ${n.glyph?q`<text class="glyph" x=${(o.x+i.x)/2} y=${(o.y+i.y)/2}>${n.glyph}</text>`:h}
-    `}renderNode(e,r,o){let i=r.get(e.area_id);if(!i)return h;let n=e.orphaned_at!==null,d=Ke(e),p=["node",`trust-${qe(e.trust)}`,`env-${Fe(e.environment)}`,d?"muted":"",o?"flagged":"",n?"orphaned":""].join(" "),g=150,y=64;return q`
+      ${u.glyph?Y`<text class="glyph" x=${(n.x+a.x)/2} y=${(n.y+a.y)/2}>${u.glyph}</text>`:h}
+    `}renderNode(e,t,o){let n=t.get(e.area_id);if(!n)return h;let a=e.orphaned_at!==null,u=dt(e),d=["node",`trust-${lt(e.trust)}`,`env-${ct(e.environment)}`,u?"muted":"",o?"flagged":"",a?"orphaned":"",e.area_id===this.selectedAreaId?"selected":""].join(" ");return Y`
       <g
-        class=${p}
-        transform="translate(${i.x-g/2}, ${i.y-y/2})"
+        class=${d}
+        transform="translate(${n.x-Z/2}, ${n.y-le/2})"
         tabindex="0"
         @click=${()=>this.emitArea(e)}
         @keydown=${f=>this.onKey(f,()=>this.emitArea(e))}
       >
-        <rect class="node-body" width=${g} height=${y} rx="10"></rect>
-        <text class="node-label" x=${g/2} y=${y/2}>
+        <rect class="node-body" width=${Z} height=${le} rx="10"></rect>
+        <text class="node-label" x=${Z/2} y=${le/2}>
           ${this.areaName(e.area_id,e)}
         </text>
-        ${d?q`<title>${l("map.needs_annotation")}</title>`:h}
-        ${n?q`<circle class="orphan-badge" cx=${g-8} cy="8" r="7"></circle>
-                <title>${l("map.orphaned")}</title>`:h}
+        ${u?Y`<title>${s("map.needs_annotation")}</title>`:h}
+        ${a?Y`<circle class="orphan-badge" cx=${Z-8} cy="8" r="7"></circle>
+                <title>${s("map.orphaned")}</title>`:h}
       </g>
-    `}onKey(e,r){(e.key==="Enter"||e.key===" ")&&(e.preventDefault(),r())}emitArea(e){this.dispatchEvent(new CustomEvent("area-selected",{detail:{area:e},bubbles:!0,composed:!0}))}emitEdge(e){this.dispatchEvent(new CustomEvent("edge-selected",{detail:{edge:e},bubbles:!0,composed:!0}))}};A.styles=$`
+    `}currentView(){return this.viewOverride??this.contentExtent()}contentExtent(){let e=this.visibleAreas().map(t=>({areaId:t.area_id,floorId:this.areaFloor(t.area_id)}));return He(e,this.floorOrder(),{nodeWidth:Z,nodeHeight:le}).extent}toSvgPoint(e,t){let n=e.currentTarget.getBoundingClientRect();if(n.width===0||n.height===0)return{x:t.x,y:t.y};let a=Math.min(n.width/t.width,n.height/t.height),u=(n.width-t.width*a)/2,d=(n.height-t.height*a)/2;return{x:t.x+(e.clientX-n.left-u)/a,y:t.y+(e.clientY-n.top-d)/a}}onKey(e,t){(e.key==="Enter"||e.key===" ")&&(e.preventDefault(),t())}emitArea(e){this.dispatchEvent(new CustomEvent("area-selected",{detail:{area:e},bubbles:!0,composed:!0}))}emitEdge(e){this.dispatchEvent(new CustomEvent("edge-selected",{detail:{edge:e},bubbles:!0,composed:!0}))}};O.styles=x`
     :host {
       display: block;
+      width: 100%;
+      height: 100%;
+    }
+    .wrap {
+      position: relative;
       width: 100%;
       height: 100%;
     }
@@ -45,6 +95,92 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       height: 100%;
       background: var(--card-background-color, #fff);
       border-radius: 12px;
+      touch-action: none;
+      cursor: grab;
+    }
+    svg:active {
+      cursor: grabbing;
+    }
+    .overlay {
+      position: absolute;
+      right: 12px;
+      bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      pointer-events: none;
+    }
+    .overlay button {
+      pointer-events: auto;
+      padding: 4px 10px;
+      border: 1px solid var(--divider-color, #bdbdbd);
+      border-radius: 14px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      cursor: pointer;
+      font-size: 0.8em;
+    }
+    .overlay p {
+      margin: 0;
+      font-size: 0.75em;
+      color: var(--secondary-text-color, #727272);
+    }
+    .legend {
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 16px;
+      pointer-events: none;
+      font-size: 0.72em;
+      color: var(--secondary-text-color, #727272);
+    }
+    .legend .group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend .caption {
+      font-weight: 500;
+    }
+    .legend .item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .legend .swatch {
+      display: inline-block;
+      width: 14px;
+      height: 10px;
+      border: 2px solid var(--divider-color, #bdbdbd);
+      border-radius: 3px;
+      background: var(--card-background-color, #fff);
+    }
+    .legend .swatch.trust-private {
+      background: var(--topology-trust-private, rgba(3, 169, 244, 0.14));
+    }
+    .legend .swatch.trust-shared {
+      background: var(--topology-trust-shared, rgba(76, 175, 80, 0.14));
+    }
+    .legend .swatch.trust-public {
+      background: var(--topology-trust-public, rgba(255, 152, 0, 0.14));
+    }
+    .legend .swatch.env-outdoor {
+      border-style: dashed;
+    }
+    .legend .swatch.env-semi_outdoor {
+      border-style: dotted;
+    }
+    .band rect {
+      fill: var(--secondary-background-color, rgba(0, 0, 0, 0.04));
+      stroke: none;
+    }
+    .band-label {
+      fill: var(--secondary-text-color, #727272);
+      font-size: 15px;
+      dominant-baseline: auto;
     }
     .edge {
       stroke: var(--primary-text-color, #212121);
@@ -52,7 +188,8 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       opacity: 0.8;
       cursor: pointer;
     }
-    .edge:focus {
+    .edge:focus,
+    .edge.selected {
       outline: none;
       stroke: var(--primary-color, #03a9f4);
       stroke-width: 5;
@@ -71,6 +208,10 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     .edge.perimeter {
       stroke: var(--warning-color, #ff9800);
       stroke-width: 4;
+    }
+    .edge.flagged {
+      stroke: var(--error-color, #f44336);
+      stroke-width: 5;
     }
     .glyph {
       font-size: 18px;
@@ -116,7 +257,8 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     .node:focus {
       outline: none;
     }
-    .node:focus .node-body {
+    .node:focus .node-body,
+    .node.selected .node-body {
       stroke: var(--primary-color, #03a9f4);
       stroke-width: 4;
     }
@@ -130,54 +272,82 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     .orphan-badge {
       fill: var(--error-color, #f44336);
     }
-  `,a([u({attribute:!1})],A.prototype,"hass",2),a([u({attribute:!1})],A.prototype,"areas",2),a([u({attribute:!1})],A.prototype,"edges",2),a([u({attribute:!1})],A.prototype,"floors",2),a([u({attribute:!1})],A.prototype,"health",2),a([u({attribute:!1})],A.prototype,"activeFloor",2),a([u({attribute:!1})],A.prototype,"focusScope",2),A=a([x("topology-floor-map")],A);function _(s,t){let e=`error.${t.code}`,r=l(e);s.dispatchEvent(new CustomEvent("topology-toast",{detail:{message:r===e?t.message:r},bubbles:!0,composed:!0}))}var Tt=["bedroom","living","kitchen","dining","bathroom","hallway","office","utility","storage","garage","balcony","terrace","outdoor"],Ht={bedroom:{environment:"indoor",trust:"private"},living:{environment:"indoor",trust:"private"},kitchen:{environment:"indoor",trust:"private"},dining:{environment:"indoor",trust:"private"},bathroom:{environment:"indoor",trust:"private"},hallway:{environment:"indoor",trust:"shared"},office:{environment:"indoor",trust:"private"},utility:{environment:"indoor",trust:"private"},storage:{environment:"indoor",trust:"private"},garage:{environment:"indoor",trust:"private"},balcony:{environment:"semi_outdoor",trust:null},terrace:{environment:"outdoor",trust:null},outdoor:{environment:"outdoor",trust:null}},Rt=["indoor","outdoor","semi_outdoor"],Ut=["private","shared","public"],O=class extends v{constructor(){super(...arguments);this.type="";this.environment="";this.trust=""}willUpdate(e){e.has("area")&&this.area&&(this.type=this.area.type??"",this.environment=this.area.environment??"",this.trust=this.area.trust??"")}onType(e){let r=e.target.value;this.type=r;let o=Ht[r];o&&(o.environment&&(this.environment=o.environment),o.trust&&(this.trust=o.trust))}async save(){try{await this.client.updateArea(this.area.area_id,{type:this.type===""?null:this.type,environment:this.environment===""?null:this.environment,trust:this.trust===""?null:this.trust})}catch(e){_(this,e instanceof m?e:new m("store_error",String(e)))}}render(){return c`
+    .empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 16px;
+      text-align: center;
+      color: var(--secondary-text-color, #727272);
+    }
+  `,l([p({attribute:!1})],O.prototype,"hass",2),l([p({attribute:!1})],O.prototype,"areas",2),l([p({attribute:!1})],O.prototype,"edges",2),l([p({attribute:!1})],O.prototype,"floors",2),l([p({attribute:!1})],O.prototype,"health",2),l([p({attribute:!1})],O.prototype,"activeFloor",2),l([p({attribute:!1})],O.prototype,"focusScope",2),l([p({attribute:!1})],O.prototype,"selectedAreaId",2),l([p({attribute:!1})],O.prototype,"selectedEdgeId",2),l([b()],O.prototype,"viewOverride",2),O=l([S("topology-floor-map")],O);var X={ATTRIBUTE:1,CHILD:2,PROPERTY:3,BOOLEAN_ATTRIBUTE:4,EVENT:5,ELEMENT:6},ut=i=>(...r)=>({_$litDirective$:i,values:r}),we=class{constructor(r){}get _$AU(){return this._$AM._$AU}_$AT(r,e,t){this._$Ct=r,this._$AM=e,this._$Ci=t}_$AS(r,e){return this.update(r,e)}update(r,e){return this.render(...e)}};var{I:xo}=rt;var ht=i=>i.strings===void 0;var Jt={},mt=(i,r=Jt)=>i._$AH=r;var w=ut(class extends we{constructor(i){if(super(i),i.type!==X.PROPERTY&&i.type!==X.ATTRIBUTE&&i.type!==X.BOOLEAN_ATTRIBUTE)throw Error("The `live` directive is not allowed on child or event bindings");if(!ht(i))throw Error("`live` bindings can only contain a single expression")}render(i){return i}update(i,[r]){if(r===P||r===h)return r;let e=i.element,t=i.name;if(i.type===X.PROPERTY){if(r===e[t])return P}else if(i.type===X.BOOLEAN_ATTRIBUTE){if(!!r===e.hasAttribute(t))return P}else if(i.type===X.ATTRIBUTE&&e.getAttribute(t)===r+"")return P;return mt(i),r}});function A(i,r){let e=`error.${r.code}`,t=s(e);i.dispatchEvent(new CustomEvent("topology-toast",{detail:{message:t===e?r.message:t},bubbles:!0,composed:!0}))}var Qt=["indoor","outdoor","semi_outdoor"],Zt=["private","shared","public"],Me="__custom__",L=class extends y{constructor(){super(...arguments);this.areaTypes={catalog:[],cascade:{}};this.type="";this.environment="";this.trust="";this.custom=!1}willUpdate(e){e.has("area")&&this.area&&(this.type=this.area.type??"",this.environment=this.area.environment??"",this.trust=this.area.trust??"",this.custom=this.type!==""&&!this.areaTypes.catalog.includes(this.type))}get dirty(){return this.type!==(this.area.type??"")||this.environment!==(this.area.environment??"")||this.trust!==(this.area.trust??"")}onTypeSelect(e){let t=e.target.value;if(t===Me){this.custom=!0,this.type="";return}this.custom=!1,this.applyType(t)}onCustomInput(e){this.type=e.target.value}applyType(e){this.type=e;let t=this.areaTypes.cascade[e];t!==void 0&&(t.environment!==null&&this.environment===""&&(this.environment=t.environment),t.trust!==null&&this.trust===""&&(this.trust=t.trust))}async save(){try{await this.client.updateArea(this.area.area_id,{type:this.type===""?null:this.type,environment:this.environment===""?null:this.environment,trust:this.trust===""?null:this.trust})}catch(e){A(this,e instanceof g?e:new g("store_error",String(e)))}}render(){return c`
       <div class="editor">
-        <h3>${l("editor.area.title")}</h3>
+        <h3>${s("editor.area.title")}</h3>
         <label>
-          ${l("editor.area.type")}
-          <input
-            list="topology-type-catalog"
-            .value=${this.type}
-            @change=${this.onType}
-          />
-          <datalist id="topology-type-catalog">
-            ${Tt.map(e=>c`<option value=${e}></option>`)}
-          </datalist>
+          ${s("editor.area.type")}
+          <select .value=${w(this.custom?Me:this.type)} @change=${this.onTypeSelect}>
+            <option value="" .selected=${!this.custom&&this.type===""}></option>
+            ${this.areaTypes.catalog.map(e=>c`
+                <option value=${e} .selected=${!this.custom&&this.type===e}>
+                  ${_("type",e)}
+                </option>
+              `)}
+            <option value=${Me} .selected=${this.custom}>
+              ${s("editor.area.type.custom")}
+            </option>
+          </select>
         </label>
+        ${this.custom?c`<label>
+              ${s("editor.area.type.custom_label")}
+              <input .value=${w(this.type)} @input=${this.onCustomInput} />
+            </label>`:h}
+        <p class="hint">${s("editor.area.type.hint")}</p>
         <label>
-          ${l("editor.area.environment")}
+          ${s("editor.area.environment")}
           <select
-            .value=${this.environment}
+            .value=${w(this.environment)}
             @change=${e=>{this.environment=e.target.value}}
           >
-            <option value=""></option>
-            ${Rt.map(e=>c`<option value=${e}>${e}</option>`)}
+            <option value="" .selected=${this.environment===""}></option>
+            ${Qt.map(e=>c`
+                <option value=${e} .selected=${this.environment===e}>
+                  ${_("environment",e)}
+                </option>
+              `)}
           </select>
         </label>
+        <p class="hint">${s("editor.area.environment.hint")}</p>
         <label>
-          ${l("editor.area.trust")}
+          ${s("editor.area.trust")}
           <select
-            .value=${this.trust}
+            .value=${w(this.trust)}
             @change=${e=>{this.trust=e.target.value}}
           >
-            <option value=""></option>
-            ${Ut.map(e=>c`<option value=${e}>${e}</option>`)}
+            <option value="" .selected=${this.trust===""}></option>
+            ${Zt.map(e=>c`
+                <option value=${e} .selected=${this.trust===e}>
+                  ${_("trust",e)}
+                </option>
+              `)}
           </select>
         </label>
-        ${this.area.orphaned_at?c`<p class="orphan">${l("map.orphaned")}</p>`:h}
+        <p class="hint">${s("editor.area.trust.hint")}</p>
+        ${this.area.orphaned_at?c`<p class="orphan">${s("map.orphaned")}</p>`:h}
         <div class="actions">
-          <button class="primary" @click=${this.save}>${l("action.save")}</button>
+          ${this.dirty?c`<span class="dirty">${s("editor.area.unsaved")}</span>`:h}
+          <button class="primary" @click=${this.save}>${s("action.save")}</button>
         </div>
       </div>
-    `}};O.styles=$`
+    `}};L.styles=x`
     .editor {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
       padding: 16px;
     }
     h3 {
-      margin: 0;
+      margin: 0 0 4px;
       color: var(--primary-text-color, #212121);
     }
     label {
@@ -195,12 +365,25 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       background: var(--card-background-color, #fff);
       color: var(--primary-text-color, #212121);
     }
+    .hint {
+      margin: 0 0 4px;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
+    }
     .orphan {
       color: var(--error-color, #f44336);
     }
     .actions {
       display: flex;
+      align-items: center;
       justify-content: flex-end;
+      gap: 12px;
+      margin-top: 4px;
+    }
+    .dirty {
+      color: var(--warning-color, #ff9800);
+      font-size: 0.85em;
     }
     button.primary {
       padding: 8px 16px;
@@ -210,75 +393,203 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       color: var(--text-primary-color, #fff);
       cursor: pointer;
     }
-  `,a([u({attribute:!1})],O.prototype,"client",2),a([u({attribute:!1})],O.prototype,"area",2),a([b()],O.prototype,"type",2),a([b()],O.prototype,"environment",2),a([b()],O.prototype,"trust",2),O=a([x("topology-area-editor")],O);function F(s,t){let e=s.find(r=>r.preset_name===t);return e===void 0?null:{passage:e.passage,barrier:e.barrier,glazed:e.glazed_default,preset_name:e.preset_name}}var M=class extends v{constructor(){super(...arguments);this.presets=[];this.connections=[]}willUpdate(e){e.has("edge")&&this.edge&&(this.connections=this.edge.connections.map(r=>({...r})))}applyPreset(e,r){let o=F(this.presets,r);if(o===null)return;let i=[...this.connections];i[e]={...i[e],...o},this.connections=i}addConnection(){let e=this.presets[0],r=e!==void 0?F(this.presets,e.preset_name):{passage:"level",barrier:"open"};this.connections=[...this.connections,r]}removeConnection(e){this.connections=this.connections.filter((r,o)=>o!==e)}async save(){if(this.connections.length===0){await this.deleteEdge();return}try{await this.client.upsertEdge(this.edge.area_a,this.edge.area_b,this.connections)}catch(e){_(this,e instanceof m?e:new m("store_error",String(e)))}}async deleteEdge(){try{await this.client.deleteEdge(this.edge.edge_id)}catch(e){_(this,e instanceof m?e:new m("store_error",String(e)))}}render(){return c`
-      <div class="editor">
-        <h3>${l("editor.edge.title")}</h3>
-        ${this.connections.map((e,r)=>c`
-            <div class="connection">
-              <label>
-                ${l("editor.edge.preset")}
-                <select
-                  .value=${e.preset_name??""}
-                  @change=${o=>this.applyPreset(r,o.target.value)}
+  `,l([p({attribute:!1})],L.prototype,"client",2),l([p({attribute:!1})],L.prototype,"area",2),l([p({attribute:!1})],L.prototype,"areaTypes",2),l([b()],L.prototype,"type",2),l([b()],L.prototype,"environment",2),l([b()],L.prototype,"trust",2),l([b()],L.prototype,"custom",2),L=l([S("topology-area-editor")],L);function B(i,r){let e=i.find(t=>t.preset_name===r);return e===void 0?null:{passage:e.passage,barrier:e.barrier,glazed:e.glazed_default,preset_name:e.preset_name}}function Re(i,r){return i.find(t=>t.preset_name===r)?.sensor_allowed??!1}var er=["N","E","S","W"],tr=new Set(["door","garage_door","window","opening"]),H=class extends y{constructor(){super(...arguments);this.presets=[];this.scope="interior";this.allowInlineTrust=!1;this.allowOverride=!1}get scopedPresets(){return this.presets.filter(e=>e.scope===this.scope)}get sensorAllowed(){let e=this.connection.preset_name;return e!==void 0&&this.presets.length>0?Re(this.presets,e):this.connection.barrier==="door"}sensorCandidates(){let e=this.hass?.states??{},t=Object.values(e).filter(o=>o.entity_id.startsWith("binary_sensor.")).map(o=>({entityId:o.entity_id,label:o.attributes.friendly_name??o.entity_id,preferred:tr.has(o.attributes.device_class??"")}));return t.sort((o,n)=>o.preferred!==n.preferred?o.preferred?-1:1:o.label.localeCompare(n.label)),t.map(({entityId:o,label:n})=>({entityId:o,label:n}))}emit(e,t=[]){let o={...this.connection,...e};for(let n of t)delete o[n];this.dispatchEvent(new CustomEvent("connection-changed",{detail:{connection:o},bubbles:!0,composed:!0}))}onPreset(e){let t=e.target.value,o=B(this.presets,t);if(o===null)return;let n=!Re(this.presets,t);this.emit(o,n?["sensor_entity_id"]:[])}onSide(e){let t=e.target.value;if(t===""){this.emit({},["side"]);return}this.emit({side:t})}onSensor(e){let t=e.target.value;if(t===""){this.emit({},["sensor_entity_id"]);return}this.emit({sensor_entity_id:t})}onInlineTrust(e){let t=e.target.value;if(t===""){this.emit({},["inline_trust"]);return}this.emit({inline_trust:t})}render(){let e=this.connection;return c`
+      <div class="fields">
+        <label>
+          ${s("editor.edge.preset")}
+          <select .value=${w(e.preset_name??"")} @change=${this.onPreset}>
+            <option value="" .selected=${e.preset_name===void 0}></option>
+            ${this.scopedPresets.map(t=>c`
+                <option
+                  value=${t.preset_name}
+                  .selected=${e.preset_name===t.preset_name}
                 >
-                  <option value=""></option>
-                  ${this.presets.map(o=>c`<option value=${o.preset_name}>${o.preset_name}</option>`)}
+                  ${_("preset",t.preset_name)}
+                </option>
+              `)}
+          </select>
+        </label>
+        <p class="axes">
+          ${_("passage",e.passage)} · ${_("barrier",e.barrier)}
+        </p>
+        <label>
+          ${s("editor.connection.side")}
+          <select .value=${w(e.side??"")} @change=${this.onSide}>
+            <option value="" .selected=${e.side===void 0}>
+              ${s("editor.beyond.unset")}
+            </option>
+            ${er.map(t=>c`
+                <option value=${t} .selected=${e.side===t}>
+                  ${_("side",t)}
+                </option>
+              `)}
+          </select>
+        </label>
+        <label class="check">
+          <input
+            type="checkbox"
+            .checked=${w(e.glazed??!1)}
+            @change=${t=>this.emit({glazed:t.target.checked})}
+          />
+          <span>${s("editor.connection.glazed")}</span>
+        </label>
+        <label>
+          ${s("editor.connection.sensor")}
+          ${this.sensorAllowed?c`
+                <select .value=${w(e.sensor_entity_id??"")} @change=${this.onSensor}>
+                  <option value="" .selected=${e.sensor_entity_id===void 0}>
+                    ${s("editor.connection.sensor.none")}
+                  </option>
+                  ${this.sensorCandidates().map(t=>c`
+                      <option
+                        value=${t.entityId}
+                        .selected=${e.sensor_entity_id===t.entityId}
+                      >
+                        ${t.label}
+                      </option>
+                    `)}
+                </select>
+              `:c`<span class="disabled">${s("editor.connection.sensor.unavailable")}</span>`}
+        </label>
+        ${this.sensorAllowed?c`<p class="hint">${s("editor.connection.sensor.hint")}</p>`:h}
+        ${this.allowInlineTrust?c`
+              <label>
+                ${s("editor.exterior.beyond_trust")}
+                <select .value=${w(e.inline_trust??"")} @change=${this.onInlineTrust}>
+                  <option value="" .selected=${e.inline_trust===void 0}></option>
+                  ${["private","shared","public"].map(t=>c`
+                      <option value=${t} .selected=${e.inline_trust===t}>
+                        ${_("trust",t)}
+                      </option>
+                    `)}
                 </select>
               </label>
-              <span class="axes">${e.passage} / ${e.barrier}</span>
-              <button @click=${()=>this.removeConnection(r)}>×</button>
-            </div>
-          `)}
-        <div class="actions">
-          <button @click=${this.addConnection}>${l("editor.edge.add")}</button>
-          <button class="danger" @click=${this.deleteEdge}>
-            ${l("editor.edge.delete")}
-          </button>
-          <button class="primary" @click=${this.save}>${l("action.save")}</button>
-        </div>
+              <p class="hint">${s("editor.exterior.beyond_trust.hint")}</p>
+            `:h}
+        ${this.allowOverride?c`
+              <label class="check">
+                <input
+                  type="checkbox"
+                  .checked=${w(e.perimeter_override??!1)}
+                  @change=${t=>this.emit({perimeter_override:t.target.checked})}
+                />
+                <span>${s("editor.connection.override")}</span>
+              </label>
+              <p class="hint">${s("editor.connection.override.hint")}</p>
+            `:h}
       </div>
-    `}};M.styles=$`
-    .editor {
+    `}};H.styles=x`
+    .fields {
       display: flex;
       flex-direction: column;
-      gap: 12px;
-      padding: 16px;
-      color: var(--primary-text-color, #212121);
-    }
-    h3 {
-      margin: 0;
-    }
-    .connection {
-      display: flex;
-      align-items: flex-end;
-      gap: 8px;
+      gap: 6px;
     }
     label {
       display: flex;
       flex-direction: column;
       gap: 4px;
-      flex: 1;
       color: var(--secondary-text-color, #727272);
-      font-size: 0.9em;
+      font-size: 0.85em;
     }
-    select {
-      padding: 8px;
+    label.check {
+      flex-direction: row;
+      align-items: center;
+      gap: 8px;
+    }
+    select,
+    input[type="text"] {
+      padding: 6px;
       border: 1px solid var(--divider-color, #bdbdbd);
       border-radius: 6px;
       background: var(--card-background-color, #fff);
       color: var(--primary-text-color, #212121);
     }
     .axes {
-      font-family: var(--code-font-family, monospace);
+      margin: 0;
       color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+    }
+    .hint {
+      margin: 0 0 2px;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.75em;
+      line-height: 1.4;
+    }
+    .disabled {
+      color: var(--secondary-text-color, #727272);
+      font-style: italic;
+    }
+  `,l([p({attribute:!1})],H.prototype,"hass",2),l([p({attribute:!1})],H.prototype,"connection",2),l([p({attribute:!1})],H.prototype,"presets",2),l([p({attribute:!1})],H.prototype,"scope",2),l([p({attribute:!1})],H.prototype,"allowInlineTrust",2),l([p({attribute:!1})],H.prototype,"allowOverride",2),H=l([S("topology-connection-fields")],H);var R=class extends y{constructor(){super(...arguments);this.presets=[];this.connections=[]}willUpdate(e){e.has("edge")&&this.edge&&(this.connections=this.edge.connections.map(t=>({...t})))}replaceConnection(e,t){let o=[...this.connections];o[e]=t,this.connections=o}addConnection(){let t=this.presets.filter(n=>n.scope==="interior")[0],o=t!==void 0?B(this.presets,t.preset_name):{passage:"level",barrier:"open"};this.connections=[...this.connections,o]}removeConnection(e){this.connections=this.connections.filter((t,o)=>o!==e)}async save(){if(this.connections.length===0){await this.deleteEdge();return}try{await this.client.upsertEdge(this.edge.area_a,this.edge.area_b,this.connections)}catch(e){A(this,e instanceof g?e:new g("store_error",String(e)))}}async deleteEdge(){try{await this.client.deleteEdge(this.edge.edge_id),this.dispatchEvent(new CustomEvent("selection-cleared",{bubbles:!0,composed:!0}))}catch(e){A(this,e instanceof g?e:new g("store_error",String(e)))}}areaName(e){return this.hass?.areas?.[e]?.name??e}axisSummary(){let e=this.edge;if(e.axis==="unknown"||e.level_delta===null)return s("editor.edge.axis.unknown");if(e.level_delta===0)return s("editor.edge.axis.horizontal");let t=e.level_delta>0?"editor.edge.axis.vertical_up":"editor.edge.axis.vertical_down";return s(t,{a:this.areaName(e.area_a),b:this.areaName(e.area_b),levels:Math.abs(e.level_delta)})}render(){return c`
+      <div class="editor">
+        <h3>${s("editor.edge.title")}</h3>
+        <p class="axis">${this.axisSummary()}</p>
+        <p class="hint">${s("editor.edge.hint")}</p>
+        ${this.connections.map((e,t)=>c`
+            <div class="connection">
+              <topology-connection-fields
+                .hass=${this.hass}
+                .connection=${e}
+                .presets=${this.presets}
+                .scope=${"interior"}
+                .allowOverride=${!0}
+                @connection-changed=${o=>{o.stopPropagation(),this.replaceConnection(t,o.detail.connection)}}
+              ></topology-connection-fields>
+              <button class="remove" @click=${()=>this.removeConnection(t)}>
+                ${s("action.remove")}
+              </button>
+            </div>
+          `)}
+        ${this.connections.length===0?c`<p class="warn">${s("editor.edge.delete")}</p>`:h}
+        <div class="actions">
+          <button @click=${this.addConnection}>${s("editor.edge.add")}</button>
+          <button class="danger" @click=${this.deleteEdge}>${s("editor.edge.delete")}</button>
+          <button class="primary" @click=${this.save}>${s("action.save")}</button>
+        </div>
+      </div>
+    `}};R.styles=x`
+    .editor {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px;
+      color: var(--primary-text-color, #212121);
+    }
+    h3 {
+      margin: 0;
+    }
+    .axis {
+      margin: 0;
+      font-size: 0.85em;
+    }
+    .hint,
+    .warn {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
+    }
+    .warn {
+      color: var(--warning-color, #ff9800);
+    }
+    .connection {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      padding: 8px;
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 8px;
+    }
+    .remove {
+      align-self: flex-end;
     }
     .actions {
       display: flex;
       justify-content: flex-end;
       gap: 8px;
+      flex-wrap: wrap;
     }
     button {
-      padding: 8px 16px;
+      padding: 6px 14px;
       border: 1px solid var(--divider-color, #bdbdbd);
       border-radius: 6px;
       background: var(--card-background-color, #fff);
@@ -293,32 +604,61 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     button.danger {
       color: var(--error-color, #f44336);
     }
-  `,a([u({attribute:!1})],M.prototype,"client",2),a([u({attribute:!1})],M.prototype,"edge",2),a([u({attribute:!1})],M.prototype,"presets",2),a([b()],M.prototype,"connections",2),M=a([x("topology-edge-editor")],M);var Nt=["N","E","S","W"],It=["outdoor","neighbor","earth"],z=class extends v{async setSide(t,e){try{await this.client.setBeyond(this.area.area_id,t,e===""?null:e)}catch(r){_(this,r instanceof m?r:new m("store_error",String(r)))}}render(){return c`
+  `,l([p({attribute:!1})],R.prototype,"client",2),l([p({attribute:!1})],R.prototype,"hass",2),l([p({attribute:!1})],R.prototype,"edge",2),l([p({attribute:!1})],R.prototype,"presets",2),l([b()],R.prototype,"connections",2),R=l([S("topology-edge-editor")],R);var rr=["N","E","S","W"],or=["outdoor","neighbor","earth"],ir={N:"S",S:"N",E:"W",W:"E"},nr={whole_property:"outdoor",unit_within_building:"neighbor"},N=class extends y{constructor(){super(...arguments);this.edges=[];this.occupancyExtent=null}async setSide(e,t){try{await this.client.setBeyond(this.area.area_id,e,t===""?null:t)}catch(o){A(this,o instanceof g?o:new g("store_error",String(o)))}}interiorSides(){let e=new Map,t=this.area.area_id;for(let o of this.edges){if(o.orphaned_at!==null)continue;let n=o.area_a===t,a=o.area_b===t;if(!n&&!a)continue;let u=n?o.area_b:o.area_a,d=this.hass?.areas?.[u]?.name??u;for(let f of o.connections){if(f.side===void 0)continue;let $=n?f.side:ir[f.side],m=e.get($)??[];m.includes(d)||m.push(d),e.set($,m)}}return e}render(){let e=this.interiorSides();return c`
       <div class="editor">
-        <h3>${l("editor.beyond.title")}</h3>
-        ${Nt.map(t=>c`
-            <label>
-              ${t}
-              <select
-                .value=${this.area.beyond[t]??""}
-                @change=${e=>this.setSide(t,e.target.value)}
-              >
-                <option value="">${l("action.clear")}</option>
-                ${It.map(e=>c`<option value=${e}>${e}</option>`)}
-              </select>
-            </label>
-          `)}
+        <h3>${s("editor.beyond.title")}</h3>
+        <p class="hint">${s("editor.beyond.hint")}</p>
+        ${rr.map(t=>{let o=e.get(t),n=this.area.beyond[t],a=n===void 0&&o===void 0&&this.occupancyExtent!==null?nr[this.occupancyExtent]:null;return c`
+            <div class="side">
+              <label>
+                <span class="side-name">${_("side",t)}</span>
+                <select
+                  .value=${w(n??"")}
+                  @change=${u=>this.setSide(t,u.target.value)}
+                >
+                  <option value="" .selected=${n===void 0}>
+                    ${s("editor.beyond.unset")}
+                  </option>
+                  ${or.map(u=>c`
+                      <option value=${u} .selected=${n===u}>
+                        ${_("beyond",u)}
+                      </option>
+                    `)}
+                </select>
+              </label>
+              ${o!==void 0?c`<p class="interior">
+                    ${s("editor.beyond.interior",{areas:o.join(", ")})}
+                  </p>`:h}
+              ${a!==null?c`<p class="suggestion">
+                    <button class="link" @click=${()=>this.setSide(t,a)}>
+                      ${s("editor.beyond.suggest",{value:_("beyond",a)})}
+                    </button>
+                  </p>`:h}
+            </div>
+          `})}
       </div>
-    `}};z.styles=$`
+    `}};N.styles=x`
     .editor {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
       padding: 16px;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
       color: var(--primary-text-color, #212121);
     }
     h3 {
       margin: 0;
+    }
+    .hint {
+      margin: 0 0 4px;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
+    }
+    .side {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
     }
     label {
       display: flex;
@@ -326,47 +666,70 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       justify-content: space-between;
       gap: 8px;
       color: var(--secondary-text-color, #727272);
+      font-size: 0.9em;
+    }
+    .side-name {
+      min-width: 4.5em;
     }
     select {
-      padding: 8px;
+      flex: 1;
+      padding: 6px;
       border: 1px solid var(--divider-color, #bdbdbd);
       border-radius: 6px;
       background: var(--card-background-color, #fff);
       color: var(--primary-text-color, #212121);
     }
-  `,a([u({attribute:!1})],z.prototype,"client",2),a([u({attribute:!1})],z.prototype,"area",2),z=a([x("topology-beyond-editor")],z);var jt=["private","shared","public"],k=class extends v{constructor(){super(...arguments);this.presets=[];this.flagged=!1;this.connections=[]}willUpdate(e){e.has("area")&&this.area&&(this.connections=this.area.exterior_connections.map(r=>({...r})))}addConnection(){let e=this.presets.find(o=>o.preset_name==="window")??this.presets[0],r=e!==void 0?F(this.presets,e.preset_name):{passage:"none",barrier:"door"};this.connections=[...this.connections,r]}applyPreset(e,r){let o=F(this.presets,r);if(o===null)return;let i=[...this.connections];i[e]={...i[e],...o},this.connections=i}setInlineTrust(e,r){let o=[...this.connections],i={...o[e]};r===""?delete i.inline_trust:i.inline_trust=r,o[e]=i,this.connections=o}removeConnection(e){this.connections=this.connections.filter((r,o)=>o!==e)}async save(){try{await this.client.setExteriorConnections(this.area.area_id,this.connections)}catch(e){_(this,e instanceof m?e:new m("store_error",String(e)))}}render(){return c`
+    .interior,
+    .suggestion {
+      margin: 0 0 2px;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.72em;
+    }
+    button.link {
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--primary-color, #03a9f4);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+  `,l([p({attribute:!1})],N.prototype,"client",2),l([p({attribute:!1})],N.prototype,"hass",2),l([p({attribute:!1})],N.prototype,"area",2),l([p({attribute:!1})],N.prototype,"edges",2),l([p({attribute:!1})],N.prototype,"occupancyExtent",2),N=l([S("topology-beyond-editor")],N);var M=class extends y{constructor(){super(...arguments);this.presets=[];this.flagged=!1;this.connections=[]}willUpdate(e){e.has("area")&&this.area&&(this.connections=this.area.exterior_connections.map(t=>({...t})))}get exteriorPresets(){return this.presets.filter(e=>e.scope==="exterior")}addConnection(){let e=this.exteriorPresets,t=e.find(n=>n.preset_name==="window")??e[0],o=t!==void 0?B(this.presets,t.preset_name):{passage:"none",barrier:"door"};this.connections=[...this.connections,o]}replaceConnection(e,t){let o=[...this.connections];o[e]=t,this.connections=o}removeConnection(e){this.connections=this.connections.filter((t,o)=>o!==e)}async save(){try{await this.client.setExteriorConnections(this.area.area_id,this.connections)}catch(e){A(this,e instanceof g?e:new g("store_error",String(e)))}}declaredSides(){return Object.keys(this.area.beyond)}render(){let e=this.connections.filter(t=>t.side===void 0).length;return c`
       <div class="editor ${this.flagged?"flagged":""}">
-        <h3>${l("editor.exterior.title")}</h3>
-        ${this.connections.map((e,r)=>c`
+        <h3>${s("editor.exterior.title")}</h3>
+        <p class="hint">${s("editor.exterior.hint")}</p>
+        ${this.connections.length===0?c`<p class="empty">${s("editor.exterior.none")}</p>`:h}
+        ${this.connections.map((t,o)=>c`
             <div class="connection">
-              <select
-                .value=${e.preset_name??""}
-                @change=${o=>this.applyPreset(r,o.target.value)}
-              >
-                <option value=""></option>
-                ${this.presets.map(o=>c`<option value=${o.preset_name}>${o.preset_name}</option>`)}
-              </select>
-              <select
-                .value=${e.inline_trust??""}
-                @change=${o=>this.setInlineTrust(r,o.target.value)}
-              >
-                <option value="">${l("editor.area.trust")}</option>
-                ${jt.map(o=>c`<option value=${o}>${o}</option>`)}
-              </select>
-              <button @click=${()=>this.removeConnection(r)}>×</button>
+              <topology-connection-fields
+                .hass=${this.hass}
+                .connection=${t}
+                .presets=${this.presets}
+                .scope=${"exterior"}
+                .allowInlineTrust=${!0}
+                @connection-changed=${n=>{n.stopPropagation(),this.replaceConnection(o,n.detail.connection)}}
+              ></topology-connection-fields>
+              <button class="remove" @click=${()=>this.removeConnection(o)}>
+                ${s("action.remove")}
+              </button>
             </div>
           `)}
+        ${e>0?c`<p class="warn">${s("editor.exterior.sideless")}</p>`:h}
+        ${this.declaredSides().length>0?c`<p class="hint">
+              ${s("editor.exterior.outer_sides",{sides:this.declaredSides().map(t=>_("side",t)).join(", ")})}
+            </p>`:h}
         <div class="actions">
-          <button @click=${this.addConnection}>${l("editor.edge.add")}</button>
-          <button class="primary" @click=${this.save}>${l("action.save")}</button>
+          <button @click=${this.addConnection}>${s("editor.edge.add")}</button>
+          <button class="primary" @click=${this.save}>${s("action.save")}</button>
         </div>
       </div>
-    `}};k.styles=$`
+    `}};M.styles=x`
     .editor {
       display: flex;
       flex-direction: column;
-      gap: 12px;
+      gap: 8px;
       padding: 16px;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
       color: var(--primary-text-color, #212121);
       border-radius: 8px;
     }
@@ -376,17 +739,29 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     h3 {
       margin: 0;
     }
+    .hint,
+    .empty {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
+    }
+    .warn {
+      margin: 0;
+      color: var(--warning-color, #ff9800);
+      font-size: 0.78em;
+      line-height: 1.4;
+    }
     .connection {
       display: flex;
-      align-items: center;
-      gap: 8px;
-    }
-    select {
+      flex-direction: column;
+      gap: 6px;
       padding: 8px;
-      border: 1px solid var(--divider-color, #bdbdbd);
-      border-radius: 6px;
-      background: var(--card-background-color, #fff);
-      color: var(--primary-text-color, #212121);
+      border: 1px solid var(--divider-color, #e0e0e0);
+      border-radius: 8px;
+    }
+    .remove {
+      align-self: flex-end;
     }
     .actions {
       display: flex;
@@ -394,7 +769,7 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       gap: 8px;
     }
     button {
-      padding: 8px 16px;
+      padding: 6px 14px;
       border: 1px solid var(--divider-color, #bdbdbd);
       border-radius: 6px;
       background: var(--card-background-color, #fff);
@@ -406,30 +781,205 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       color: var(--text-primary-color, #fff);
       border: none;
     }
-  `,a([u({attribute:!1})],k.prototype,"client",2),a([u({attribute:!1})],k.prototype,"area",2),a([u({attribute:!1})],k.prototype,"presets",2),a([u({attribute:!1})],k.prototype,"flagged",2),a([b()],k.prototype,"connections",2),k=a([x("topology-exterior-editor")],k);var L=class extends v{constructor(){super(...arguments);this.floors=[];this.flagged=new Set}floorName(e){return this.hass?.floors?.[e]?.name??e}async setLevel(e,r){let o=r.trim()===""?null:Number.parseInt(r,10);if(!(o!==null&&Number.isNaN(o)))try{await this.client.setFloorLevel(e.floor_id,o)}catch(i){_(this,i instanceof m?i:new m("store_error",String(i)))}}render(){return c`
+  `,l([p({attribute:!1})],M.prototype,"client",2),l([p({attribute:!1})],M.prototype,"hass",2),l([p({attribute:!1})],M.prototype,"area",2),l([p({attribute:!1})],M.prototype,"presets",2),l([p({attribute:!1})],M.prototype,"flagged",2),l([b()],M.prototype,"connections",2),M=l([S("topology-exterior-editor")],M);var sr=new Set(["stairs","ramp","elevator","ladder","hatch"]);function ft(i,r){if(i===null||r===null)return"unknown";let e=r-i;return e===0?"same":e===1?"above":e===-1?"below":"distant"}function gt(i,r){let e=i.filter(o=>o.scope==="interior");if(r==="unknown")return e;let t=r!=="same";return e.filter(o=>o.passage==="none"||sr.has(o.passage)===t)}function vt(i,r){return i.level_delta===null?null:i.area_a===r?i.level_delta:-i.level_delta}var ar=["same","above","below","distant","unknown"],lr={same:"editor.neighbors.group.same",above:"editor.neighbors.group.above",below:"editor.neighbors.group.below",distant:"editor.neighbors.group.distant",unknown:"editor.neighbors.group.unknown"},C=class extends y{constructor(){super(...arguments);this.areas=[];this.edges=[];this.floors=[];this.presets=[];this.pickedArea="";this.pickedPreset="";this.busy=!1}willUpdate(e){e.has("area")&&(this.pickedArea="",this.pickedPreset="")}areaName(e){return this.hass?.areas?.[e]?.name??e}levelOf(e){let t=this.hass?.areas?.[e]?.floor_id??null;return t===null?null:this.floors.find(n=>n.floor_id===t)?.effective_level??null}relationTo(e){return ft(this.levelOf(this.area.area_id),this.levelOf(e))}currentNeighbors(){return this.edges.filter(e=>!e.orphaned_at&&(e.area_a===this.area.area_id||e.area_b===this.area.area_id)).map(e=>({edge:e,otherId:e.area_a===this.area.area_id?e.area_b:e.area_a}))}candidates(){let e=new Set(this.currentNeighbors().map(t=>t.otherId));return this.areas.filter(t=>t.area_id!==this.area.area_id&&t.orphaned_at===null&&!e.has(t.area_id)&&this.hass?.areas?.[t.area_id]!==void 0).map(t=>({areaId:t.area_id,name:this.areaName(t.area_id),relation:this.relationTo(t.area_id)})).sort((t,o)=>t.name.localeCompare(o.name))}offeredPresets(){let e=this.pickedArea===""?"unknown":this.relationTo(this.pickedArea);return gt(this.presets,e)}async addNeighbor(){if(this.pickedArea===""||this.pickedPreset==="")return;let e=B(this.presets,this.pickedPreset);if(e!==null){this.busy=!0;try{await this.client.upsertEdge(this.area.area_id,this.pickedArea,[e]),this.pickedArea="",this.pickedPreset=""}catch(t){A(this,t instanceof g?t:new g("store_error",String(t)))}finally{this.busy=!1}}}select(e){this.dispatchEvent(new CustomEvent("edge-selected",{detail:{edge:e},bubbles:!0,composed:!0}))}relationSummary(e,t){if(e.axis==="unknown"||e.level_delta===null)return s("editor.edge.axis.unknown");if(e.level_delta===0)return s("editor.edge.axis.horizontal");let o=vt(e,this.area.area_id)??0,n=o>0?"editor.edge.axis.vertical_up":"editor.edge.axis.vertical_down";return s(n,{a:this.areaName(this.area.area_id),b:this.areaName(t),levels:Math.abs(o)})}render(){let e=this.currentNeighbors(),t=this.candidates(),o=this.offeredPresets(),n=this.pickedArea!==""&&this.relationTo(this.pickedArea)==="distant";return c`
       <div class="editor">
-        <h3>${l("editor.floor.title")}</h3>
+        <h3>${s("editor.neighbors.title")}</h3>
+        <p class="hint">${s("editor.neighbors.hint")}</p>
+        ${e.length===0?c`<p class="empty">${s("editor.neighbors.none")}</p>`:c`<ul>
+              ${e.map(({edge:a,otherId:u})=>c`
+                  <li>
+                    <div class="row">
+                      <button class="link" @click=${()=>this.select(a)}>
+                        ${this.areaName(u)}
+                      </button>
+                      <span class="kinds">
+                        ${a.connections.map(d=>d.preset_name!==void 0?_("preset",d.preset_name):_("passage",d.passage)).join(", ")}
+                      </span>
+                    </div>
+                    <p class="relation">${this.relationSummary(a,u)}</p>
+                  </li>
+                `)}
+            </ul>`}
+        ${t.length===0?h:c`
+              <div class="add">
+                <label>
+                  ${s("editor.neighbors.area")}
+                  <select
+                    .value=${w(this.pickedArea)}
+                    @change=${a=>{this.pickedArea=a.target.value,this.pickedPreset=""}}
+                  >
+                    <option value="" .selected=${this.pickedArea===""}>
+                      ${s("editor.neighbors.pick")}
+                    </option>
+                    ${ar.map(a=>{let u=t.filter(d=>d.relation===a);return u.length===0?h:c`
+                        <optgroup label=${s(lr[a])}>
+                          ${u.map(d=>c`
+                              <option value=${d.areaId} .selected=${this.pickedArea===d.areaId}>
+                                ${d.name}
+                              </option>
+                            `)}
+                        </optgroup>
+                      `})}
+                  </select>
+                </label>
+                ${n?c`<p class="warn">${s("editor.neighbors.distant_warning")}</p>`:h}
+                <label>
+                  ${s("editor.edge.preset")}
+                  <select
+                    .value=${w(this.pickedPreset)}
+                    @change=${a=>{this.pickedPreset=a.target.value}}
+                  >
+                    <option value="" .selected=${this.pickedPreset===""}></option>
+                    ${o.map(a=>c`
+                        <option
+                          value=${a.preset_name}
+                          .selected=${this.pickedPreset===a.preset_name}
+                        >
+                          ${_("preset",a.preset_name)}
+                        </option>
+                      `)}
+                  </select>
+                </label>
+                <div class="actions">
+                  <button
+                    class="primary"
+                    ?disabled=${this.busy||this.pickedArea===""||this.pickedPreset===""}
+                    @click=${this.addNeighbor}
+                  >
+                    ${s("editor.neighbors.add")}
+                  </button>
+                </div>
+              </div>
+            `}
+      </div>
+    `}};C.styles=x`
+    .editor {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 16px;
+      border-top: 1px solid var(--divider-color, #e0e0e0);
+      color: var(--primary-text-color, #212121);
+    }
+    h3 {
+      margin: 0;
+    }
+    .hint {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
+    }
+    ul {
+      margin: 4px 0;
+      padding: 0;
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .row {
+      display: flex;
+      align-items: baseline;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .kinds {
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      text-align: right;
+    }
+    .relation {
+      margin: 2px 0 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.75em;
+    }
+    .empty {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.85em;
+    }
+    .add {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-top: 4px;
+      padding-top: 8px;
+      border-top: 1px dashed var(--divider-color, #e0e0e0);
+    }
+    label {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.85em;
+    }
+    select {
+      padding: 6px;
+      border: 1px solid var(--divider-color, #bdbdbd);
+      border-radius: 6px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+    }
+    .warn {
+      margin: 0;
+      color: var(--warning-color, #ff9800);
+      font-size: 0.75em;
+      line-height: 1.4;
+    }
+    .actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+    button.link {
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--primary-color, #03a9f4);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
+    button.primary {
+      padding: 6px 14px;
+      border: none;
+      border-radius: 6px;
+      background: var(--primary-color, #03a9f4);
+      color: var(--text-primary-color, #fff);
+      cursor: pointer;
+    }
+    button.primary[disabled] {
+      opacity: 0.5;
+      cursor: default;
+    }
+  `,l([p({attribute:!1})],C.prototype,"client",2),l([p({attribute:!1})],C.prototype,"hass",2),l([p({attribute:!1})],C.prototype,"area",2),l([p({attribute:!1})],C.prototype,"areas",2),l([p({attribute:!1})],C.prototype,"edges",2),l([p({attribute:!1})],C.prototype,"floors",2),l([p({attribute:!1})],C.prototype,"presets",2),l([b()],C.prototype,"pickedArea",2),l([b()],C.prototype,"pickedPreset",2),l([b()],C.prototype,"busy",2),C=l([S("topology-neighbors-editor")],C);var z=class extends y{constructor(){super(...arguments);this.floors=[];this.flagged=new Set}floorName(e){return this.hass?.floors?.[e]?.name??e}async setLevel(e,t){let o=t.trim()===""?null:Number.parseInt(t,10);if(!(o!==null&&Number.isNaN(o)))try{await this.client.setFloorLevel(e.floor_id,o)}catch(n){A(this,n instanceof g?n:new g("store_error",String(n)))}}render(){return c`
+      <div class="editor">
+        <h3>${s("editor.floor.title")}</h3>
+        <p class="hint">${s("editor.floor.hint")}</p>
+        ${this.floors.length===0?c`<p class="hint">${s("editor.floor.unset")}</p>`:h}
         ${this.floors.map(e=>c`
             <div class="row ${this.flagged.has(e.floor_id)?"flagged":""}">
               <span class="name">${this.floorName(e.floor_id)}</span>
               ${e.registry_level===null?c`
                     <label>
-                      ${l("editor.floor.override")}
+                      ${s("editor.floor.override")}
                       <input
                         type="number"
-                        .value=${e.level_override===null?"":String(e.level_override)}
-                        @change=${r=>this.setLevel(e,r.target.value)}
+                        .value=${w(e.level_override===null?"":String(e.level_override))}
+                        @change=${t=>this.setLevel(e,t.target.value)}
                       />
                     </label>
-                  `:c`<span class="registry">${e.registry_level}</span>`}
+                  `:c`<span class="registry">
+                    ${s("editor.floor.from_registry")}: ${e.registry_level}
+                  </span>`}
               <span class="effective">
-                ${l("editor.floor.effective")}:
+                ${s("editor.floor.effective")}:
                 ${e.effective_level===null?"\u2014":e.effective_level}
               </span>
             </div>
           `)}
       </div>
-    `}};L.styles=$`
+    `}};z.styles=x`
     .editor {
       display: flex;
       flex-direction: column;
@@ -439,6 +989,12 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     }
     h3 {
       margin: 0;
+    }
+    .hint {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
     }
     .row {
       display: flex;
@@ -473,33 +1029,33 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       color: var(--secondary-text-color, #727272);
       font-size: 0.9em;
     }
-  `,a([u({attribute:!1})],L.prototype,"client",2),a([u({attribute:!1})],L.prototype,"hass",2),a([u({attribute:!1})],L.prototype,"floors",2),a([u({attribute:!1})],L.prototype,"flagged",2),L=a([x("topology-floor-editor")],L);var Ve=["aliases","labels"],Dt="topology",zt="import_from_core",Ge="topology.first-run.dismissed";function _e(s){let t=new Set;if(!s)return t;let e=null;try{e=s.getItem(Ge)}catch{return t}if(e===null)return t;let r;try{r=JSON.parse(e)}catch{return t}if(!Array.isArray(r))return t;for(let o of r)Ve.includes(o)&&t.add(o);return t}function Je(s,t){let e=_e(s);if(e.add(t),s)try{s.setItem(Ge,JSON.stringify([...e]))}catch{}return e}function Xe(s,t=new Set){return s?Ve.filter(e=>s.imports_done_at[e]===null&&!t.has(e)):[]}async function Ze(s,t){if(typeof s.callService!="function")throw new Error("hass.callService is unavailable");await s.callService(Dt,zt,{source:t})}var T=class extends v{constructor(){super(...arguments);this.dismissed=new Set;this.running=null}connectedCallback(){super.connectedCallback(),this.dismissed=_e(this.storage)}get storage(){try{return window.localStorage??null}catch{return null}}async runSource(e){this.running=e;try{await Ze(this.hass,e)}catch(r){_(this,r instanceof m?r:new m("store_error",String(r)))}finally{this.running=null}}dismissSource(e){this.dismissed=Je(this.storage,e)}render(){let e=Xe(this.homeConfig,this.dismissed);return e.length===0?h:c`
+  `,l([p({attribute:!1})],z.prototype,"client",2),l([p({attribute:!1})],z.prototype,"hass",2),l([p({attribute:!1})],z.prototype,"floors",2),l([p({attribute:!1})],z.prototype,"flagged",2),z=l([S("topology-floor-editor")],z);var bt=["aliases","labels"],cr="topology",dr="import_from_core",yt="topology.first-run.dismissed";function Ne(i){let r=new Set;if(!i)return r;let e=null;try{e=i.getItem(yt)}catch{return r}if(e===null)return r;let t;try{t=JSON.parse(e)}catch{return r}if(!Array.isArray(t))return r;for(let o of t)bt.includes(o)&&r.add(o);return r}function $t(i,r){let e=Ne(i);if(e.add(r),i)try{i.setItem(yt,JSON.stringify([...e]))}catch{}return e}function xt(i,r=new Set){return i?bt.filter(e=>i.imports_done_at[e]===null&&!r.has(e)):[]}async function _t(i,r){if(typeof i.callService!="function")throw new Error("hass.callService is unavailable");await i.callService(cr,dr,{source:r})}var W=class extends y{constructor(){super(...arguments);this.dismissed=new Set;this.running=null}connectedCallback(){super.connectedCallback(),this.dismissed=Ne(this.storage)}get storage(){try{return window.localStorage??null}catch{return null}}async runSource(e){this.running=e;try{await _t(this.hass,e)}catch(t){A(this,t instanceof g?t:new g("store_error",String(t)))}finally{this.running=null}}dismissSource(e){this.dismissed=$t(this.storage,e)}render(){let e=xt(this.homeConfig,this.dismissed);return e.length===0?h:c`
       <div class="card">
-        <h3>${l("first_run.title")}</h3>
-        <p class="hint">${l("first_run.hint")}</p>
-        ${e.map(r=>c`
+        <h3>${s("first_run.title")}</h3>
+        <p class="hint">${s("first_run.hint")}</p>
+        ${e.map(t=>c`
             <div class="row">
-              <span class="label">${l(`first_run.source.${r}`)}</span>
+              <span class="label">${s(`first_run.source.${t}`)}</span>
               <div class="actions">
                 <button
                   class="primary"
                   ?disabled=${this.running!==null}
-                  @click=${()=>this.runSource(r)}
+                  @click=${()=>this.runSource(t)}
                 >
-                  ${this.running===r?l("first_run.running"):l("first_run.import")}
+                  ${this.running===t?s("first_run.running"):s("first_run.import")}
                 </button>
                 <button
                   class="link"
                   ?disabled=${this.running!==null}
-                  @click=${()=>this.dismissSource(r)}
+                  @click=${()=>this.dismissSource(t)}
                 >
-                  ${l("first_run.dismiss")}
+                  ${s("first_run.dismiss")}
                 </button>
               </div>
             </div>
           `)}
       </div>
-    `}};T.styles=$`
+    `}};W.styles=x`
     .card {
       display: flex;
       flex-direction: column;
@@ -547,57 +1103,65 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       opacity: 0.6;
       cursor: default;
     }
-  `,a([u({attribute:!1})],T.prototype,"hass",2),a([u({attribute:!1})],T.prototype,"homeConfig",2),a([b()],T.prototype,"dismissed",2),a([b()],T.prototype,"running",2),T=a([x("topology-first-run-card")],T);var Wt=["whole_property","unit_within_building"],w=class extends v{constructor(){super(...arguments);this.occupancy="whole_property";this.threshold=3;this.projectEnvironment=!1;this.projectType=!1;this.projectTrust=!1}willUpdate(e){e.has("homeConfig")&&this.homeConfig&&(this.occupancy=this.homeConfig.occupancy_extent,this.threshold=this.homeConfig.unannotated_repair_threshold,this.projectEnvironment=this.homeConfig.projection_toggles.environment,this.projectType=this.homeConfig.projection_toggles.type,this.projectTrust=this.homeConfig.projection_toggles.trust)}async save(){try{await this.client.updateHomeConfig({occupancy_extent:this.occupancy,unannotated_repair_threshold:this.threshold,projection_toggles:{environment:this.projectEnvironment,type:this.projectType,trust:this.projectTrust}})}catch(e){_(this,e instanceof m?e:new m("store_error",String(e)))}}render(){return c`
+  `,l([p({attribute:!1})],W.prototype,"hass",2),l([p({attribute:!1})],W.prototype,"homeConfig",2),l([b()],W.prototype,"dismissed",2),l([b()],W.prototype,"running",2),W=l([S("topology-first-run-card")],W);var pr=["whole_property","unit_within_building"],T=class extends y{constructor(){super(...arguments);this.occupancy="whole_property";this.threshold=3;this.projectEnvironment=!1;this.projectType=!1;this.projectTrust=!1}willUpdate(e){e.has("homeConfig")&&this.homeConfig&&(this.occupancy=this.homeConfig.occupancy_extent,this.threshold=this.homeConfig.unannotated_repair_threshold,this.projectEnvironment=this.homeConfig.projection_toggles.environment,this.projectType=this.homeConfig.projection_toggles.type,this.projectTrust=this.homeConfig.projection_toggles.trust)}async save(){try{await this.client.updateHomeConfig({occupancy_extent:this.occupancy,unannotated_repair_threshold:this.threshold,projection_toggles:{environment:this.projectEnvironment,type:this.projectType,trust:this.projectTrust}})}catch(e){A(this,e instanceof g?e:new g("store_error",String(e)))}}render(){return c`
       <div class="editor">
-        <h3>${l("editor.home.title")}</h3>
+        <h3>${s("editor.home.title")}</h3>
         <label>
-          ${l("editor.home.occupancy")}
+          ${s("editor.home.occupancy")}
           <select
-            .value=${this.occupancy}
+            .value=${w(this.occupancy)}
             @change=${e=>{this.occupancy=e.target.value}}
           >
-            ${Wt.map(e=>c`<option value=${e}>${e}</option>`)}
+            ${pr.map(e=>c`
+                <option value=${e} .selected=${this.occupancy===e}>
+                  ${_("occupancy",e)}
+                </option>
+              `)}
           </select>
         </label>
+        <p class="hint">${s("editor.home.occupancy.hint")}</p>
         <label>
-          ${l("editor.home.threshold")}
+          ${s("editor.home.threshold")}
           <input
             type="number"
             min="1"
             max="100"
-            .value=${String(this.threshold)}
+            .value=${w(String(this.threshold))}
             @change=${e=>{this.threshold=Number.parseInt(e.target.value,10)||1}}
           />
         </label>
+        <p class="hint">${s("editor.home.threshold.hint")}</p>
+        <h4>${s("editor.home.projection")}</h4>
+        <p class="hint">${s("editor.home.projection.hint")}</p>
         <label class="checkbox">
           <input
             type="checkbox"
-            .checked=${this.projectEnvironment}
+            .checked=${w(this.projectEnvironment)}
             @change=${e=>{this.projectEnvironment=e.target.checked}}
           />
-          ${l("editor.home.project_environment")}
+          ${s("editor.home.project_environment")}
         </label>
         <label class="checkbox">
           <input
             type="checkbox"
-            .checked=${this.projectType}
+            .checked=${w(this.projectType)}
             @change=${e=>{this.projectType=e.target.checked}}
           />
-          ${l("editor.home.project_type")}
+          ${s("editor.home.project_type")}
         </label>
         <label class="checkbox">
           <input
             type="checkbox"
-            .checked=${this.projectTrust}
+            .checked=${w(this.projectTrust)}
             @change=${e=>{this.projectTrust=e.target.checked}}
           />
-          ${l("editor.home.project_trust")}
+          ${s("editor.home.project_trust")}
         </label>
         <div class="actions">
-          <button class="primary" @click=${this.save}>${l("action.save")}</button>
+          <button class="primary" @click=${this.save}>${s("action.save")}</button>
         </div>
       </div>
-    `}};w.styles=$`
+    `}};T.styles=x`
     .editor {
       display: flex;
       flex-direction: column;
@@ -607,6 +1171,15 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     }
     h3 {
       margin: 0;
+    }
+    h4 {
+      margin: 8px 0 0;
+    }
+    .hint {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
     }
     label {
       display: flex;
@@ -639,23 +1212,23 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       color: var(--text-primary-color, #fff);
       cursor: pointer;
     }
-  `,a([u({attribute:!1})],w.prototype,"client",2),a([u({attribute:!1})],w.prototype,"homeConfig",2),a([b()],w.prototype,"occupancy",2),a([b()],w.prototype,"threshold",2),a([b()],w.prototype,"projectEnvironment",2),a([b()],w.prototype,"projectType",2),a([b()],w.prototype,"projectTrust",2),w=a([x("topology-home-config-editor")],w);var H=class extends v{constructor(){super(...arguments);this.areas=[];this.edges=[]}get orphanedAreas(){return this.areas.filter(e=>e.orphaned_at!==null)}get orphanedEdges(){return this.edges.filter(e=>e.orphaned_at!==null)}areaLabel(e){return this.hass?.areas?.[e]?.name??e}restorable(e){return!!this.hass?.areas?.[e.area_a]&&!!this.hass?.areas?.[e.area_b]}async restore(e){try{await this.client.restoreEdge(e.edge_id)}catch(r){_(this,r instanceof m?r:new m("store_error",String(r)))}}render(){let e=this.orphanedAreas,r=this.orphanedEdges;return e.length===0&&r.length===0?c`<div class="editor"><p>${l("editor.orphans.empty")}</p></div>`:c`
+  `,l([p({attribute:!1})],T.prototype,"client",2),l([p({attribute:!1})],T.prototype,"homeConfig",2),l([b()],T.prototype,"occupancy",2),l([b()],T.prototype,"threshold",2),l([b()],T.prototype,"projectEnvironment",2),l([b()],T.prototype,"projectType",2),l([b()],T.prototype,"projectTrust",2),T=l([S("topology-home-config-editor")],T);var D=class extends y{constructor(){super(...arguments);this.areas=[];this.edges=[]}get orphanedAreas(){return this.areas.filter(e=>e.orphaned_at!==null)}get orphanedEdges(){return this.edges.filter(e=>e.orphaned_at!==null)}areaLabel(e){return this.hass?.areas?.[e]?.name??e}restorable(e){return!!this.hass?.areas?.[e.area_a]&&!!this.hass?.areas?.[e.area_b]}async restore(e){try{await this.client.restoreEdge(e.edge_id)}catch(t){A(this,t instanceof g?t:new g("store_error",String(t)))}}render(){let e=this.orphanedAreas,t=this.orphanedEdges;return e.length===0&&t.length===0?c`<div class="editor"><p>${s("editor.orphans.empty")}</p></div>`:c`
       <div class="editor">
-        <h3>${l("editor.orphans.title")}</h3>
+        <h3>${s("editor.orphans.title")}</h3>
         ${e.map(o=>c`<div class="row"><span>${this.areaLabel(o.area_id)}</span></div>`)}
-        ${r.map(o=>c`
+        ${t.map(o=>c`
             <div class="row">
               <span>${this.areaLabel(o.area_a)} ↔ ${this.areaLabel(o.area_b)}</span>
               <button
                 ?disabled=${!this.restorable(o)}
                 @click=${()=>this.restore(o)}
               >
-                ${l("editor.orphans.restore")}
+                ${s("editor.orphans.restore")}
               </button>
             </div>
           `)}
       </div>
-    `}};H.styles=$`
+    `}};D.styles=x`
     .editor {
       display: flex;
       flex-direction: column;
@@ -686,30 +1259,51 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       opacity: 0.4;
       cursor: not-allowed;
     }
-  `,a([u({attribute:!1})],H.prototype,"client",2),a([u({attribute:!1})],H.prototype,"hass",2),a([u({attribute:!1})],H.prototype,"areas",2),a([u({attribute:!1})],H.prototype,"edges",2),H=a([x("topology-orphans-view")],H);var S=class extends v{constructor(){super(...arguments);this.narrow=!1;this.store=null;this.view="map";this.focusScope=null;this.activeFloor=null;this.selectedArea=null;this.selectedEdge=null;this.toastMessage=null;this.client=null;this.removeListener=null;this.onToast=e=>{this.toastMessage=e.detail.message,window.setTimeout(()=>{this.toastMessage=null},4e3)};this.onAreaSelected=e=>{this.selectedArea=e.detail.area,this.selectedEdge=null};this.onEdgeSelected=e=>{this.selectedEdge=e.detail.edge,this.selectedArea=null}}connectedCallback(){super.connectedCallback(),this.client=new ne(this.hass.connection);let e=new ae(this.client);this.store=e,this.removeListener=e.addListener(()=>this.requestUpdate());let r=We(window.location.search);this.view=r.view,this.focusScope=r.focus,e.connect(),this.addEventListener("topology-toast",this.onToast),this.addEventListener("area-selected",this.onAreaSelected),this.addEventListener("edge-selected",this.onEdgeSelected)}disconnectedCallback(){super.disconnectedCallback(),this.removeListener?.(),this.store?.dispose(),this.removeEventListener("topology-toast",this.onToast),this.removeEventListener("area-selected",this.onAreaSelected),this.removeEventListener("edge-selected",this.onEdgeSelected)}willUpdate(e){e.has("hass")&&this.store&&this.hass&&this.store.handleConnectionState(this.hass.connection.connected??!0)}get snapshot(){return this.store?.state.snapshot??null}get health(){return this.store?.state.health??null}floorButtons(){let r=(this.snapshot?.floors??[]).map(o=>({id:o.floor_id,label:this.hass.floors?.[o.floor_id]?.name??o.floor_id}));return r.push({id:xe,label:l("panel.floor.outdoor")}),r}render(){let e=this.store?.state;return c`
+  `,l([p({attribute:!1})],D.prototype,"client",2),l([p({attribute:!1})],D.prototype,"hass",2),l([p({attribute:!1})],D.prototype,"areas",2),l([p({attribute:!1})],D.prototype,"edges",2),D=l([S("topology-orphans-view")],D);var Ue="__all__",k=class extends y{constructor(){super(...arguments);this.narrow=!1;this.store=null;this.view="map";this.focusScope=null;this.activeFloor=null;this.selectedAreaId=null;this.selectedEdgeId=null;this.toastMessage=null;this.client=null;this.removeListener=null;this.onToast=e=>{this.toastMessage=e.detail.message,window.setTimeout(()=>{this.toastMessage=null},4e3)};this.onAreaSelected=e=>{this.selectedAreaId=e.detail.area.area_id,this.selectedEdgeId=null};this.onEdgeSelected=e=>{this.selectedEdgeId=e.detail.edge.edge_id,this.selectedAreaId=null};this.clearSelection=()=>{this.selectedAreaId=null,this.selectedEdgeId=null};this.onKeyDown=e=>{e.key==="Escape"&&(this.selectedAreaId!==null||this.selectedEdgeId!==null)&&this.clearSelection()};this.goHome=()=>{this.view="map",this.focusScope=null,this.clearSelection(),this.syncUrl()}}connectedCallback(){super.connectedCallback(),this.client=new xe(this.hass.connection);let e=new _e(this.client);this.store=e,this.removeListener=e.addListener(()=>this.requestUpdate());let t=nt(window.location.search);this.view=t.view,this.focusScope=t.focus,e.connect(),this.addEventListener("topology-toast",this.onToast),this.addEventListener("area-selected",this.onAreaSelected),this.addEventListener("edge-selected",this.onEdgeSelected),this.addEventListener("selection-cleared",this.clearSelection),this.addEventListener("keydown",this.onKeyDown)}disconnectedCallback(){super.disconnectedCallback(),this.removeListener?.(),this.store?.dispose(),this.removeEventListener("topology-toast",this.onToast),this.removeEventListener("area-selected",this.onAreaSelected),this.removeEventListener("edge-selected",this.onEdgeSelected),this.removeEventListener("selection-cleared",this.clearSelection),this.removeEventListener("keydown",this.onKeyDown)}willUpdate(e){e.has("hass")&&this.store&&this.hass&&this.store.handleConnectionState(this.hass.connection.connected??!0)}syncUrl(){let e=it(this.focusScope),t=`${window.location.pathname}${e}`;t!==`${window.location.pathname}${window.location.search}`&&window.history.replaceState(window.history.state,"",t)}get snapshot(){return this.store?.state.snapshot??null}get health(){return this.store?.state.health??null}get selectedArea(){return this.selectedAreaId===null?null:this.snapshot?.areas.find(e=>e.area_id===this.selectedAreaId)??null}get selectedEdge(){return this.selectedEdgeId===null?null:this.snapshot?.edges.find(e=>e.edge_id===this.selectedEdgeId)??null}floorButtons(){let e=this.snapshot,t=[{id:Ue,label:s("panel.floor.all")}];for(let o of e?.floors??[])t.push({id:o.floor_id,label:this.hass.floors?.[o.floor_id]?.name??o.floor_id});return t.push({id:ce,label:s("panel.floor.outdoor")}),t}render(){let e=this.store?.state;return c`
       <div class="root">
-        ${e&&!e.connected?c`<div class="banner reconnecting">${l("banner.reconnecting")}</div>`:h}
-        ${e?.error?c`<div class="banner error">${l("banner.error")}</div>`:h}
+        ${e&&!e.connected?c`<div class="banner reconnecting">${s("banner.reconnecting")}</div>`:h}
+        ${e?.error?c`<div class="banner error">${s("banner.error")}</div>`:h}
         <header>
-          <h1>${l("panel.title")}</h1>
-          <nav class="floors">
-            ${this.floorButtons().map(r=>c`
-                <button
-                  class=${this.activeFloor===r.id?"active":""}
-                  @click=${()=>{this.activeFloor=r.id}}
-                >
-                  ${r.label}
-                </button>
-              `)}
+          <h1>${s("panel.title")}</h1>
+          <nav class="views">
+            <button
+              class=${this.isHome()?"active":""}
+              @click=${this.goHome}
+              title=${s("panel.nav.back")}
+            >
+              ${s("panel.nav.home")}
+            </button>
+            <button
+              class=${this.view==="floors"?"active":""}
+              @click=${()=>this.openView("floors")}
+            >
+              ${s("panel.nav.floors")}
+            </button>
+            <button
+              class=${this.view==="orphans"?"active":""}
+              @click=${()=>this.openView("orphans")}
+            >
+              ${s("panel.nav.orphans")}
+            </button>
           </nav>
         </header>
+        <nav class="floors">
+          ${this.floorButtons().map(t=>c`
+              <button
+                class=${(this.activeFloor??Ue)===t.id?"active":""}
+                @click=${()=>{this.activeFloor=t.id===Ue?null:t.id}}
+              >
+                ${t.label}
+              </button>
+            `)}
+        </nav>
         <div class="body">
           <div class="map">${this.renderMap()}</div>
           <aside class="side">${this.renderSide()}</aside>
         </div>
         ${this.toastMessage?c`<div class="toast" role="alert">${this.toastMessage}</div>`:h}
       </div>
-    `}renderMap(){let e=this.snapshot;return e===null?c`<div class="empty">…</div>`:c`
+    `}isHome(){return this.view==="map"&&this.selectedAreaId===null&&this.selectedEdgeId===null}openView(e){this.view=e,this.focusScope=e==="floors"?"floors":e==="orphans"?"orphans":null,this.clearSelection(),this.syncUrl()}renderMap(){let e=this.snapshot;return e===null?c`<div class="empty">…</div>`:c`
       <topology-floor-map
         .hass=${this.hass}
         .areas=${e.areas}
@@ -718,26 +1312,49 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
         .health=${this.health}
         .activeFloor=${this.activeFloor}
         .focusScope=${this.focusScope}
+        .selectedAreaId=${this.selectedAreaId}
+        .selectedEdgeId=${this.selectedEdgeId}
       ></topology-floor-map>
-    `}renderSide(){let e=this.snapshot;if(e===null||this.client===null)return h;if(this.selectedEdge!==null)return c`
+    `}renderSide(){let e=this.snapshot;if(e===null||this.client===null)return h;let t=this.selectedEdge;if(t!==null)return c`
+        ${this.renderCloseBar(this.edgeTitle(t))}
         <topology-edge-editor
           .client=${this.client}
-          .edge=${this.selectedEdge}
+          .hass=${this.hass}
+          .edge=${t}
           .presets=${e.presets}
         ></topology-edge-editor>
-      `;if(this.selectedArea!==null){let r=this.focusScope==="exterior"&&(this.health?.exterior_on_non_outdoor_side??[]).includes(this.selectedArea.area_id);return c`
-        <topology-area-editor .client=${this.client} .area=${this.selectedArea}></topology-area-editor>
+      `;let o=this.selectedArea;if(o!==null){let n=(this.health?.exterior_on_non_outdoor_side??[]).includes(o.area_id);return c`
+        ${this.renderCloseBar(this.hass.areas?.[o.area_id]?.name??o.area_id)}
+        <topology-area-editor
+          .client=${this.client}
+          .area=${o}
+          .areaTypes=${e.area_types}
+        ></topology-area-editor>
+        <topology-neighbors-editor
+          .client=${this.client}
+          .hass=${this.hass}
+          .area=${o}
+          .areas=${e.areas}
+          .edges=${e.edges}
+          .floors=${e.floors}
+          .presets=${e.presets}
+        ></topology-neighbors-editor>
         <topology-beyond-editor
           .client=${this.client}
-          .area=${this.selectedArea}
+          .hass=${this.hass}
+          .area=${o}
+          .edges=${e.edges}
+          .occupancyExtent=${e.home_config.occupancy_extent}
         ></topology-beyond-editor>
         <topology-exterior-editor
           .client=${this.client}
-          .area=${this.selectedArea}
+          .hass=${this.hass}
+          .area=${o}
           .presets=${e.presets}
-          .flagged=${r}
+          .flagged=${n}
         ></topology-exterior-editor>
       `}return this.view==="floors"?c`
+        ${this.renderCloseBar(s("panel.nav.floors"))}
         <topology-floor-editor
           .client=${this.client}
           .hass=${this.hass}
@@ -745,6 +1362,7 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
           .flagged=${new Set(this.health?.indoor_areas_without_floor??[])}
         ></topology-floor-editor>
       `:this.view==="orphans"?c`
+        ${this.renderCloseBar(s("panel.nav.orphans"))}
         <topology-orphans-view
           .client=${this.client}
           .hass=${this.hass}
@@ -761,14 +1379,44 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
         .client=${this.client}
         .homeConfig=${e.home_config}
       ></topology-home-config-editor>
-    `}renderFlagged(){if(this.focusScope===null||this.health===null)return h;let e=this.focusScope==="unannotated"?"unannotated_areas":this.focusScope==="isolated"?"isolated_areas":this.focusScope==="bearings"?"contradictory_bearings":null;if(e===null)return h;let r=this.health[e],o=this.focusScope==="unannotated"?l("sidebar.unannotated"):this.focusScope==="isolated"?l("sidebar.isolated"):l("sidebar.bearings");return c`
+    `}renderCloseBar(e){return c`
+      <div class="close-bar">
+        <span class="crumb">${e}</span>
+        <button @click=${this.goHome} title=${s("panel.nav.back")}>
+          ${s("action.close")}
+        </button>
+      </div>
+    `}edgeTitle(e){let t=o=>this.hass.areas?.[o]?.name??o;return s("editor.edge.between",{a:t(e.area_a),b:t(e.area_b)})}renderFlagged(){if(this.focusScope===null||this.health===null)return h;if(this.focusScope==="geometry")return this.renderFlaggedEdges();let e=this.focusScope==="unannotated"?"unannotated_areas":this.focusScope==="isolated"?"isolated_areas":this.focusScope==="bearings"?"contradictory_bearings":this.focusScope==="exterior"?"exterior_on_non_outdoor_side":null;if(e===null)return h;let t=this.health[e],o=this.focusScope==="unannotated"?s("sidebar.unannotated"):this.focusScope==="isolated"?s("sidebar.isolated"):this.focusScope==="bearings"?s("sidebar.bearings"):s("editor.exterior.title");return c`
       <div class="flagged-list">
         <h3>${o}</h3>
-        ${r.length===0?c`<p>${l("sidebar.none")}</p>`:c`<ul>
-              ${r.map(i=>c`<li>${this.hass.areas?.[i]?.name??i}</li>`)}
+        ${t.length===0?c`<p>${s("sidebar.none")}</p>`:c`<ul>
+              ${t.map(n=>c`<li>
+                  <button
+                    class="link"
+                    @click=${()=>{this.selectedAreaId=n,this.selectedEdgeId=null}}
+                  >
+                    ${this.hass.areas?.[n]?.name??n}
+                  </button>
+                </li>`)}
             </ul>`}
       </div>
-    `}};S.styles=$`
+    `}renderFlaggedEdges(){let e=this.health,t=this.snapshot;if(e===null||t===null)return h;let o=[{title:s("sidebar.spanning"),ids:e.edges_spanning_multiple_floors??[]},{title:s("sidebar.no_climb"),ids:e.vertical_edges_without_vertical_passage??[]}];return c`
+      <div class="flagged-list">
+        ${o.map(n=>c`
+            <h3>${n.title}</h3>
+            ${n.ids.length===0?c`<p>${s("sidebar.none")}</p>`:c`<ul>
+                  ${n.ids.map(a=>{let u=t.edges.find(d=>d.edge_id===a);return c`<li>
+                      <button
+                        class="link"
+                        @click=${()=>{this.selectedEdgeId=a,this.selectedAreaId=null}}
+                      >
+                        ${u!==void 0?this.edgeTitle(u):a}
+                      </button>
+                    </li>`})}
+                </ul>`}
+          `)}
+      </div>
+    `}};k.styles=x`
     :host {
       display: block;
       height: 100%;
@@ -793,12 +1441,12 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       margin: 0;
       font-size: 1.2em;
     }
-    nav.floors {
+    nav.views {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
     }
-    nav.floors button {
+    nav.views button {
       padding: 6px 12px;
       border: none;
       border-radius: 16px;
@@ -806,9 +1454,31 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       color: inherit;
       cursor: pointer;
     }
-    nav.floors button.active {
+    nav.views button.active {
       background: rgba(255, 255, 255, 0.9);
       color: var(--primary-color, #03a9f4);
+    }
+    nav.floors {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      background: var(--card-background-color, #fff);
+    }
+    nav.floors button {
+      padding: 4px 12px;
+      border: 1px solid var(--divider-color, #bdbdbd);
+      border-radius: 16px;
+      background: transparent;
+      color: var(--primary-text-color, #212121);
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    nav.floors button.active {
+      background: var(--primary-color, #03a9f4);
+      border-color: var(--primary-color, #03a9f4);
+      color: var(--text-primary-color, #fff);
     }
     .body {
       display: flex;
@@ -826,6 +1496,29 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
       overflow-y: auto;
       border-left: 1px solid var(--divider-color, #e0e0e0);
       background: var(--card-background-color, #fff);
+    }
+    .close-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      background: var(--card-background-color, #fff);
+    }
+    .close-bar .crumb {
+      font-weight: 500;
+    }
+    .close-bar button {
+      padding: 4px 12px;
+      border: 1px solid var(--divider-color, #bdbdbd);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--primary-text-color, #212121);
+      cursor: pointer;
     }
     .banner {
       padding: 8px 16px;
@@ -852,6 +1545,19 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
     .flagged-list h3 {
       margin: 0 0 8px;
     }
+    .flagged-list ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+    button.link {
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--primary-color, #03a9f4);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
+    }
     .toast {
       position: fixed;
       bottom: 24px;
@@ -873,5 +1579,5 @@ var it=Object.defineProperty;var nt=Object.getOwnPropertyDescriptor;var a=(s,t,e
         border-top: 1px solid var(--divider-color, #e0e0e0);
       }
     }
-  `,a([u({attribute:!1})],S.prototype,"hass",2),a([u({attribute:!1})],S.prototype,"narrow",2),a([u({attribute:!1})],S.prototype,"route",2),a([u({attribute:!1})],S.prototype,"panel",2),a([b()],S.prototype,"store",2),a([b()],S.prototype,"view",2),a([b()],S.prototype,"focusScope",2),a([b()],S.prototype,"activeFloor",2),a([b()],S.prototype,"selectedArea",2),a([b()],S.prototype,"selectedEdge",2),a([b()],S.prototype,"toastMessage",2),S=a([x("topology-panel")],S);export{S as TopologyPanel};
+  `,l([p({attribute:!1})],k.prototype,"hass",2),l([p({attribute:!1})],k.prototype,"narrow",2),l([p({attribute:!1})],k.prototype,"route",2),l([p({attribute:!1})],k.prototype,"panel",2),l([b()],k.prototype,"store",2),l([b()],k.prototype,"view",2),l([b()],k.prototype,"focusScope",2),l([b()],k.prototype,"activeFloor",2),l([b()],k.prototype,"selectedAreaId",2),l([b()],k.prototype,"selectedEdgeId",2),l([b()],k.prototype,"toastMessage",2),k=l([S("topology-panel")],k);export{k as TopologyPanel};
 //# sourceMappingURL=topology-panel.js.map

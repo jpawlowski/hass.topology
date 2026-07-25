@@ -23,6 +23,8 @@ from homeassistant.helpers.entity import async_generate_entity_id
 from homeassistant.helpers.event import async_track_state_change_event
 
 if TYPE_CHECKING:
+    from collections.abc import Coroutine
+
     from custom_components.topology.coordinator import TopologyCoordinator
     from custom_components.topology.data import PerimeterConnection
     from homeassistant.core import CALLBACK_TYPE, Event
@@ -44,7 +46,7 @@ class TopologyPerimeterBinarySensor(TopologyEntity, BinarySensorEntity):
         self.entity_id = async_generate_entity_id(ENTITY_ID_FORMAT, perimeter_object_id(), hass=coordinator.hass)
         self._tracked_sensors: tuple[str, ...] = ()
         self._unsub_state: CALLBACK_TYPE | None = None
-        self._debouncer: Debouncer | None = None
+        self._debouncer: Debouncer[Coroutine[Any, Any, None]] | None = None
 
     def _monitored(self) -> tuple[PerimeterConnection, ...]:
         """Return perimeter connections that carry a bound sensor (§2.2)."""

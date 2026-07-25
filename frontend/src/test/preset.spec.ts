@@ -4,9 +4,30 @@ import type { PresetOut } from "../api/types";
 
 /** A subset of the server-shipped preset table (`_serialize_presets`). */
 const PRESETS: PresetOut[] = [
-  { preset_name: "interior_door", passage: "level", barrier: "door", glazed_default: false, sensor_allowed: true },
-  { preset_name: "open_passage", passage: "level", barrier: "open", glazed_default: false, sensor_allowed: false },
-  { preset_name: "window", passage: "none", barrier: "door", glazed_default: true, sensor_allowed: true },
+  {
+    preset_name: "interior_door",
+    passage: "level",
+    barrier: "door",
+    glazed_default: false,
+    sensor_allowed: true,
+    scope: "interior",
+  },
+  {
+    preset_name: "open_passage",
+    passage: "level",
+    barrier: "open",
+    glazed_default: false,
+    sensor_allowed: false,
+    scope: "interior",
+  },
+  {
+    preset_name: "window",
+    passage: "none",
+    barrier: "door",
+    glazed_default: true,
+    sensor_allowed: true,
+    scope: "exterior",
+  },
 ];
 
 describe("preset expansion uses the server table (never a hardcoded map)", () => {

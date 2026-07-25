@@ -14,6 +14,7 @@ const EMPTY_SNAPSHOT: ListAnnotationsResult = {
   edges: [],
   floors: [],
   presets: [],
+  area_types: { catalog: [], cascade: {} },
 };
 
 const EMPTY_HEALTH = { status: "ok" } as HealthResult;

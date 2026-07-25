@@ -2,8 +2,9 @@
 
 # script/yaml-check: Check YAML files with yamllint
 #
-# Runs yamllint in check-only mode against integration YAML, schemas,
-# GitHub Actions workflows, and config files. yamllint has no auto-fix mode.
+# Runs yamllint in check-only mode against integration YAML, the shipped
+# blueprints, schemas, GitHub Actions workflows, and config files. yamllint has
+# no auto-fix mode.
 # Useful for targeted validation after YAML changes.
 #
 # Usage:
@@ -29,6 +30,7 @@ run_hook "yaml-check" "pre"
 log_header "Checking YAML with yamllint"
 yamllint -c .yamllint.yml \
     "$INTEGRATION_PATH"/ \
+    blueprints/ \
     schemas/yaml/ \
     .github/ \
     .pre-commit-config.yaml \

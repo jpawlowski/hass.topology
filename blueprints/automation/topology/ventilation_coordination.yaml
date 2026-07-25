@@ -1,0 +1,167 @@
+blueprint:
+  name: "Topology: coordinate ventilation with the open envelope"
+  description: |-
+    Pause mechanical ventilation while the house is being aired through open windows or doors, and resume it
+    once the envelope is closed again.
+
+    Running an extract fan or an MVHR unit against an open window wastes energy and defeats the heat exchanger.
+    Topology already knows when the envelope is open: `binary_sensor.topology_perimeter_open` is `on` whenever
+    any perimeter connection with a bound `binary_sensor` reads open, and its `open_connections` attribute says
+    which areas those openings are in.
+
+    **What this blueprint uses, and what it cannot use.** A connection's `barrier` (`open`/`door`/`solid`) and
+    the `environment` of the area on the far side are not reachable from a blueprint — they live on the
+    `topology/read_hook` and `topology/connections_facing_outdoor` WebSocket commands. The perimeter aggregate
+    is the closest YAML-reachable proxy, and for the airing case it is the right one: an opening that separates
+    two different trust classes is, in practice, an opening to the outside. Optionally restrict the automation
+    to specific areas — that filter runs against the `area_id` values in `open_connections`, which *is*
+    reachable.
+
+    **Requires:** at least one perimeter connection with a bound `binary_sensor` (check `monitored_count`).
+    Without a bound sensor the aggregate never turns `on` and nothing here happens.
+
+    Pausing means `homeassistant.turn_off`, resuming means `homeassistant.turn_on`, so the same inputs work for
+    a `fan`, a `switch`, or a `humidifier`. If your unit needs a specific preset or fan mode instead, use this
+    blueprint as a starting point rather than as-is.
+  domain: automation
+  author: jpawlowski
+  source_url: >-
+    https://github.com/jpawlowski/hass.topology/blob/main/blueprints/automation/topology/ventilation_coordination.yaml
+  homeassistant:
+    min_version: 2026.7.0
+  input:
+    equipment:
+      name: Ventilation equipment
+      icon: mdi:fan
+      input:
+        ventilation_entities:
+          name: Ventilation entities
+          description: >-
+            The fans, switches, or humidifiers to pause while the envelope is open.
+          selector:
+            entity:
+              multiple: true
+              filter:
+                - domain: fan
+                - domain: switch
+                - domain: humidifier
+    thresholds:
+      name: When to react
+      icon: mdi:tune
+      input:
+        open_grace:
+          name: Open for at least
+          description: >-
+            How long the envelope has to stay open before ventilation is paused. A couple of minutes ignores
+            somebody simply walking through a door.
+          default:
+            hours: 0
+            minutes: 2
+            seconds: 0
+          selector:
+            duration:
+        close_grace:
+          name: Closed for at least
+          description: >-
+            How long everything has to stay closed before ventilation resumes.
+          default:
+            hours: 0
+            minutes: 5
+            seconds: 0
+          selector:
+            duration:
+        minimum_open_count:
+          name: Minimum number of open openings
+          description: >-
+            Pause only once at least this many monitored perimeter openings are open, read from the `open_count`
+            attribute. Raise it if a single trickle-vented window should not stop the unit.
+          default: 1
+          selector:
+            number:
+              min: 1
+              max: 20
+              step: 1
+              mode: box
+    scope:
+      name: Scope
+      icon: mdi:map-marker-radius-outline
+      collapsed: true
+      input:
+        restrict_to_areas:
+          name: Only these areas
+          description: >-
+            Leave empty to count every monitored perimeter opening. Otherwise only openings whose `area_id`
+            appears here are counted — useful when the ventilation unit serves one wing of the house.
+          default: []
+          selector:
+            area:
+              multiple: true
+        resume_when_closed:
+          name: Resume when closed again
+          description: >-
+            Leave enabled to turn the equipment back on once the envelope has been closed for the configured
+            time. Disable it if the unit is scheduled elsewhere and should only ever be paused, never started.
+          default: true
+          selector:
+            boolean:
+
+mode: restart
+
+triggers:
+  - trigger: state
+    id: envelope_open
+    entity_id: binary_sensor.topology_perimeter_open
+    to: "on"
+    for: !input open_grace
+  - trigger: state
+    id: envelope_closed
+    entity_id: binary_sensor.topology_perimeter_open
+    to: "off"
+    for: !input close_grace
+
+actions:
+  - alias: "Count the open perimeter openings that are in scope"
+    variables:
+      topology_open_connections: >-
+        {{ state_attr('binary_sensor.topology_perimeter_open', 'open_connections') or [] }}
+      topology_in_scope_count: >-
+        {% set open = state_attr('binary_sensor.topology_perimeter_open', 'open_connections') or [] %}
+        {% if restrict_to_areas | count == 0 %}
+          {{ state_attr('binary_sensor.topology_perimeter_open', 'open_count') or 0 }}
+        {% else %}
+          {{ open | selectattr('area_id', 'in', restrict_to_areas) | list | count }}
+        {% endif %}
+  - alias: "Pause or resume"
+    choose:
+      - alias: "Envelope open long enough — pause ventilation"
+        conditions:
+          - condition: trigger
+            id: envelope_open
+          - condition: template
+            value_template: >-
+              {{ topology_in_scope_count | int(0) >= minimum_open_count | int(1) }}
+        sequence:
+          - action: homeassistant.turn_off
+            target:
+              entity_id: !input ventilation_entities
+          - action: logbook.log
+            data:
+              name: Topology
+              message: >-
+                Ventilation paused — {{ topology_in_scope_count }} perimeter opening(s) open in
+                {{ topology_open_connections | map(attribute='area_id') | unique | map('area_name')
+                   | select() | join(', ') or 'an unnamed area' }}.
+      - alias: "Envelope closed long enough — resume ventilation"
+        conditions:
+          - condition: trigger
+            id: envelope_closed
+          - condition: template
+            value_template: "{{ resume_when_closed }}"
+        sequence:
+          - action: homeassistant.turn_on
+            target:
+              entity_id: !input ventilation_entities
+          - action: logbook.log
+            data:
+              name: Topology
+              message: "Ventilation resumed — the perimeter is closed."

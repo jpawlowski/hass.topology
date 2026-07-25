@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
@@ -30,6 +31,19 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _FIXTURE = Path(__file__).parent / "fixtures" / "store_v1_example.json"
+
+
+@pytest.fixture(autouse=True)
+async def enable_event_loop_debug() -> None:
+    """Enable event-loop debug mode, shadowing the plugin's broken fixture.
+
+    ``pytest_homeassistant_custom_component`` enables debug mode from a *sync*
+    fixture via ``asyncio.get_event_loop()``. Python 3.14 no longer creates a loop
+    on demand there, so that call raises ``RuntimeError`` and every single test
+    errors during setup. Asking for the running loop from an async fixture gets
+    the loop pytest-asyncio has already started, which is the one under test.
+    """
+    asyncio.get_running_loop().set_debug(True)
 
 
 @pytest.fixture(autouse=True)
