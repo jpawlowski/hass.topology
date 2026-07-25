@@ -22,7 +22,7 @@ from typing import TYPE_CHECKING
 from homeassistant.components import frontend, panel_custom
 from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
-from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady
+from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
 
 from .const import (
@@ -147,9 +147,10 @@ async def async_migrate_entry(
     source of truth for home config — and then empties ``entry.data``. Core calls
     this immediately before ``async_setup_entry``.
 
-    The order is load-bearing: the store is written **and flushed** before any
-    key is considered migrated, and ``entry.data`` is only reduced once the save
-    succeeded, so every failure path simply retries on the next load.
+    The order is load-bearing: the store is written, flushed **and read back**
+    before any key is considered migrated, and ``entry.data`` is only reduced
+    once that verification passed, so every failure path simply retries on the
+    next load.
     """
     if entry.version > CONFIG_ENTRY_VERSION or (
         entry.version == CONFIG_ENTRY_VERSION and entry.minor_version > CONFIG_ENTRY_MINOR_VERSION
@@ -195,9 +196,10 @@ async def async_migrate_entry(
         project_trust=data.get(CONF_PROJECT_TRUST),
         unannotated_repair_threshold=data.get(CONF_UNANNOTATED_REPAIR_THRESHOLD),
     )
-    # The store's normal save is debounced; a migration must not depend on a
-    # debounce a crash could drop (§3.2 step 5).
-    await store.async_save_now()
+    if not await _async_flush_and_verify(hass, store):
+        # Same deferral as a load error, for the same reason: the entry keeps its
+        # legacy keys at 1.1 and the next load retries.
+        return True
 
     # Only now: drop the legacy keys and bump, in one update (§3.2 step 6).
     hass.config_entries.async_update_entry(
@@ -205,6 +207,38 @@ async def async_migrate_entry(
         data={key: value for key, value in data.items() if key not in LEGACY_CONF_KEYS},
         minor_version=CONFIG_ENTRY_MINOR_VERSION,
     )
+    return True
+
+
+async def _async_flush_and_verify(hass: HomeAssistant, store: TopologyStore) -> bool:
+    """Flush the migrated store and confirm it really reached disk (§3.2 step 5).
+
+    "The save did not raise" is not the same as "the save succeeded": HA's
+    ``Store._async_handle_write_data`` **catches** ``WriteError`` (what a full or
+    read-only disk produces) and only logs it, while an ``OSError`` from creating
+    the storage directory escapes instead. Trusting either outcome blindly would
+    let the caller empty ``entry.data`` after a write that never happened — the
+    one way this migration could lose data.
+
+    So the payload is loaded back exactly the way ``async_setup_entry`` will load
+    it, and the home config is compared. Returns ``False`` on any doubt, which
+    the caller turns into a deferral: nothing is bumped, nothing is cleared, and
+    the next load simply retries (§3.3). This is one extra read on the single
+    boot that migrates.
+    """
+    try:
+        await store.async_save_now()
+        verify = TopologyStore(hass)
+        await verify.async_load()
+    except (OSError, HomeAssistantError) as err:
+        LOGGER.warning("Deferring config entry migration: the topology store could not be written (%s)", err)
+        return False
+
+    if verify.data["home_config"] != store.data["home_config"]:
+        LOGGER.warning(
+            "Deferring config entry migration: the topology store did not persist the transferred home config"
+        )
+        return False
     return True
 
 

@@ -355,9 +355,26 @@ succeeded**:
 project_type=…, project_trust=…, unannotated_repair_threshold=…)`.
    Absent keys stay `None` and are skipped by the store method, so a
    hand-trimmed `entry.data` cannot blank a store value.
-5. **Flush** with `await store.async_save_now()` — the store's normal save is
-   debounced (`async_delay_save`); the migration must not depend on a debounce
-   that a crash could drop.
+5. **Flush and verify.** `await store.async_save_now()` — the store's normal
+   save is debounced (`async_delay_save`) and the migration must not depend on a
+   debounce that a crash could drop — followed by a **read-back**: load a fresh
+   `TopologyStore` the same way `async_setup_entry` will, and compare its
+   `home_config` against what was just applied. Anything short of a match is
+   treated exactly like a load error in step 3 (log, `return True`, no bump, no
+   clearing).
+
+   _Added during implementation, 2026-07-25, after PR review._ "The save did not
+   raise" turned out not to mean "the save succeeded":
+   `Store._async_handle_write_data` **catches** `WriteError` — what a full or
+   read-only disk produces — and only logs it, so `async_save_now()` returns
+   normally after writing nothing, while an `OSError` from
+   `_write_prepared_data`'s `os.makedirs` escapes instead and would have reached
+   core as a failed migration (the non-recoverable `MIGRATION_ERROR`). Both
+   break §3.3's stated invariant that _any_ failure path leaves the entry
+   retryable; the silent one would additionally have emptied `entry.data` on top
+   of an unwritten store, which is the one way this migration could lose data.
+   The read-back costs one extra file read on the single boot that migrates.
+
 6. **Bump the entry**:
    `hass.config_entries.async_update_entry(entry, data=<see below>, minor_version=CONFIG_ENTRY_MINOR_VERSION)`
    (`@callback`, keyword-only, verified in Appendix A.2).

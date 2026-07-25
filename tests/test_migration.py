@@ -105,6 +105,7 @@ async def test_migrate_partial_entry_data(hass: HomeAssistant, persisted_store: 
 async def test_migrate_clears_legacy_keys(
     hass: HomeAssistant,
     legacy_config_entry: MockConfigEntry,
+    persisted_store: None,
 ) -> None:
     """The same update that bumps the version empties entry.data (S1+S2 merged)."""
     assert await _setup(hass, legacy_config_entry)
@@ -112,7 +113,7 @@ async def test_migrate_clears_legacy_keys(
     assert legacy_config_entry.minor_version == CONFIG_ENTRY_MINOR_VERSION
 
 
-async def test_migrate_keeps_unknown_entry_keys(hass: HomeAssistant) -> None:
+async def test_migrate_keeps_unknown_entry_keys(hass: HomeAssistant, persisted_store: None) -> None:
     """Only the known legacy keys are stripped; anything else is preserved."""
     entry = _legacy_entry({"occupancy_extent": "whole_property", "unrelated": "keep me"})
     assert await _setup(hass, entry)
@@ -146,6 +147,7 @@ async def test_migrate_is_idempotent(
 async def test_migrate_store_error_defers_bump(
     hass: HomeAssistant,
     legacy_config_entry: MockConfigEntry,
+    persisted_store: None,
 ) -> None:
     """A store error defers the bump *and* the clearing; a later load migrates."""
     legacy_config_entry.add_to_hass(hass)
@@ -167,6 +169,62 @@ async def test_migrate_store_error_defers_bump(
     assert legacy_config_entry.state is ConfigEntryState.LOADED
     assert legacy_config_entry.minor_version == CONFIG_ENTRY_MINOR_VERSION
     assert legacy_config_entry.data == {}
+
+
+async def test_migrate_flush_raising_defers_bump(
+    hass: HomeAssistant,
+    legacy_config_entry: MockConfigEntry,
+    persisted_store: None,
+) -> None:
+    """A flush that *raises* defers instead of parking the entry unrecoverably.
+
+    ``Store._write_prepared_data`` creates the storage directory outside its
+    error handler, so an ``OSError`` there escapes ``async_save_now()``. Letting
+    it escape the hook would make core log it and treat the migration as failed
+    → the non-recoverable ``MIGRATION_ERROR`` state.
+    """
+    legacy_config_entry.add_to_hass(hass)
+    with patch(
+        "custom_components.topology.store.TopologyStore.async_save_now",
+        side_effect=OSError("no space left on device"),
+    ):
+        assert await hass.config_entries.async_setup(legacy_config_entry.entry_id)
+        await hass.async_block_till_done()
+
+    # Setup itself is fine — the store is readable, only the flush failed. The
+    # entry loads normally, is NOT in MIGRATION_ERROR, and nothing was cleared.
+    assert legacy_config_entry.state is ConfigEntryState.LOADED
+    assert legacy_config_entry.minor_version == 1
+    assert legacy_config_entry.data["occupancy_extent"] == "whole_property"
+
+    # Once the disk recovers, the next load migrates.
+    await hass.config_entries.async_reload(legacy_config_entry.entry_id)
+    await hass.async_block_till_done()
+    assert legacy_config_entry.state is ConfigEntryState.LOADED
+    assert legacy_config_entry.minor_version == CONFIG_ENTRY_MINOR_VERSION
+    assert legacy_config_entry.data == {}
+
+
+async def test_migrate_silently_failed_flush_defers_bump(
+    hass: HomeAssistant,
+    legacy_config_entry: MockConfigEntry,
+) -> None:
+    """A flush that fails *silently* must not let entry.data be cleared.
+
+    HA's ``Store._async_handle_write_data`` catches ``WriteError`` — what a full
+    or read-only disk produces — and only logs it, so ``async_save_now()``
+    returns normally although nothing was written. Without the read-back check
+    the migration would empty ``entry.data`` on top of an unwritten store and
+    lose the user's settings. Here the harness supplies exactly that shape: it
+    mocks writes into memory, so nothing reaches the file the store reloads from.
+    """
+    entry = _legacy_entry({"occupancy_extent": "unit_within_building", "unannotated_repair_threshold": 10})
+    assert await _setup(hass, entry)
+
+    # Setup itself succeeds (the store is readable) but the migration deferred.
+    assert entry.state is ConfigEntryState.LOADED
+    assert entry.minor_version == 1
+    assert entry.data == {"occupancy_extent": "unit_within_building", "unannotated_repair_threshold": 10}
 
 
 async def test_migrate_current_entry_untouched(
@@ -247,6 +305,7 @@ async def test_pending_import_not_run_at_setup(
     hass: HomeAssistant,
     area_registry: object,
     import_payload: dict[str, str],
+    persisted_store: None,
 ) -> None:
     """A never-executed opt-in does not import at setup; the stamp stays null.
 
