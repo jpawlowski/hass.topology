@@ -103,7 +103,8 @@
         "ms-vscode.vscode-chat-customizations-evaluations",
         "redhat.vscode-yaml",
         "tamasfe.even-better-toml",
-        "anthropic.claude-code"
+        "anthropic.claude-code",
+        "openai.chatgpt"
       ],
       // Please keep this file in sync with settings in .vscode/settings.default.jsonc
       "settings": {
