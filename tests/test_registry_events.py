@@ -150,3 +150,58 @@ async def test_floor_removed_orphans_override(
     await hass.async_block_till_done()
 
     assert store.data["floors"][floor.floor_id].get("orphaned_at") is not None
+
+
+async def test_area_removed_without_annotation_fans_out_as_area(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+) -> None:
+    """A never-annotated area has no affected ids; the fanout stays 'area', not 'orphan'."""
+    events: list[dict[str, Any]] = []
+    hass.bus.async_listen(EVENT_TOPOLOGY_UPDATED, lambda event: events.append(event.data))
+
+    area_registry.async_delete("kueche")
+    await hass.async_block_till_done()
+
+    assert not any(event["change"] == "orphan" for event in events)
+    area_events = [event for event in events if event["change"] == "area"]
+    assert area_events
+    assert "kueche" in area_events[-1]["ids"]
+
+
+async def test_floor_removed_without_override_fans_out_as_floor(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    floor_registry: fr.FloorRegistry,
+) -> None:
+    """A floor with no stored level_override has no affected ids; fanout stays 'floor'."""
+    floor = floor_registry.async_create("Attic")  # never given a level_override
+    events: list[dict[str, Any]] = []
+    hass.bus.async_listen(EVENT_TOPOLOGY_UPDATED, lambda event: events.append(event.data))
+
+    floor_registry.async_delete(floor.floor_id)
+    await hass.async_block_till_done()
+
+    assert not any(event["change"] == "orphan" for event in events)
+    floor_events = [event for event in events if event["change"] == "floor"]
+    assert floor_events
+    assert floor.floor_id in floor_events[-1]["ids"]
+
+
+async def test_floor_reorder_fans_out(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    two_floor_registry: fr.FloorRegistry,
+) -> None:
+    """Reordering floors re-emits a snapshot fanout with no specific ids."""
+    floor_ids = [floor.floor_id for floor in two_floor_registry.async_list_floors()]
+    events: list[dict[str, Any]] = []
+    hass.bus.async_listen(EVENT_TOPOLOGY_UPDATED, lambda event: events.append(event.data))
+
+    two_floor_registry.async_reorder(list(reversed(floor_ids)))
+    await hass.async_block_till_done()
+
+    floor_events = [event for event in events if event["change"] == "floor"]
+    assert floor_events
+    assert floor_events[-1]["ids"] == []
