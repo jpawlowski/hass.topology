@@ -27,6 +27,7 @@ from .const import DOMAIN, EVENT_TOPOLOGY_UPDATED
 from .data import (
     AREA_TYPE_CATALOG,
     CONNECTION_PRESETS,
+    TYPE_CASCADE,
     Barrier,
     BeyondClass,
     CardinalSide,
@@ -36,17 +37,13 @@ from .data import (
     Trust,
     connection_to_dict,
 )
-from .entity_utils.derivations import (
-    build_health,
-    connections_facing_outdoor,
-    derive_perimeter,
-    effective_level,
-    is_perimeter_edge,
-)
-from .entity_utils.graph import neighbors as graph_neighbors, shortest_path
+from .entity_utils.derivations import build_health, connections_facing_outdoor, derive_perimeter, is_perimeter_edge
+from .entity_utils.graph import edge_levels, neighbors as graph_neighbors, path_distance, shortest_path
 from .service_actions.label_projection import async_reconcile_labels
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from homeassistant.core import HomeAssistant
     from homeassistant.helpers.area_registry import AreaRegistry
     from homeassistant.helpers.floor_registry import FloorRegistry
@@ -156,20 +153,16 @@ def _edge_out(
     floor_reg: FloorRegistry,
     overrides: dict[str, FloorOverride],
 ) -> dict[str, Any]:
-    """Serialize an edge with derived axis + is_perimeter (§4 edge_out)."""
-    level_a = effective_level(edge.area_a, area_reg, floor_reg, overrides)
-    level_b = effective_level(edge.area_b, area_reg, floor_reg, overrides)
-    if level_a is None or level_b is None:
-        axis = "unknown"
-    elif level_a == level_b:
-        axis = "horizontal"
-    else:
-        axis = "vertical"
+    """Serialize an edge with derived axis + level_delta + is_perimeter (§4 edge_out)."""
+    axis, level_delta = edge_levels(edge, area_reg, floor_reg, overrides)
     return {
         "edge_id": edge.edge_id,
         "area_a": edge.area_a,
         "area_b": edge.area_b,
         "axis": axis,
+        # Signed a -> b: positive means area_b is the upper one. ``axis`` says
+        # only *that* the edge is vertical, never which way.
+        "level_delta": level_delta,
         "is_perimeter": is_perimeter_edge(edge, area_trust),
         "connections": [_connection_out(connection) for connection in edge.connections],
         "orphaned_at": edge.orphaned_at,
@@ -211,7 +204,18 @@ def _serialize_floors(
     snapshot: TopologySnapshot,
     floor_reg: FloorRegistry,
 ) -> list[dict[str, Any]]:
-    """Merge registry floor levels with store overrides (§4.10 home.floors)."""
+    """Merge registry floor levels with store overrides, ordered top-down (§4.10 home.floors).
+
+    Emitted highest ``effective_level`` first, so iterating the list reads like a
+    section through the building and a consumer needs no level arithmetic to lay
+    floors out vertically. Floors with no resolvable level sort last and keep
+    registry order (the sort is stable), because there is nothing to place them by.
+
+    The level itself is the registry's number — HA allows ``0`` and negatives, so
+    a ground floor is ``0`` where that is the convention and ``1`` where it is
+    not. Only the relative order matters here; the label always comes from the
+    floor's name, never from the number.
+    """
     overrides = {floor.floor_id: floor for floor in snapshot.floors}
     result: list[dict[str, Any]] = []
     registry_ids: list[str] = []
@@ -238,7 +242,28 @@ def _serialize_floors(
                     "effective_level": override.level_override,
                 }
             )
+    result.sort(key=lambda floor: (floor["effective_level"] is None, -(floor["effective_level"] or 0)))
     return result
+
+
+def _serialize_area_types() -> dict[str, Any]:
+    """Ship the area-type catalog + cascade so the panel never hardcodes them (§4.1).
+
+    The catalog is open — any string stays legal — but the shipped defaults and
+    the environment/trust each one suggests are the backend's to define, exactly
+    as with the preset table. Without this the panel would carry a second copy
+    that silently drifts.
+    """
+    return {
+        "catalog": list(AREA_TYPE_CATALOG),
+        "cascade": {
+            area_type: {
+                "environment": environment.value if environment is not None else None,
+                "trust": trust.value if trust is not None else None,
+            }
+            for area_type, (environment, trust) in TYPE_CASCADE.items()
+        },
+    }
 
 
 def _serialize_presets() -> list[dict[str, Any]]:
@@ -250,6 +275,10 @@ def _serialize_presets() -> list[dict[str, Any]]:
             "barrier": definition.barrier.value,
             "glazed_default": definition.glazed_default,
             "sensor_allowed": definition.sensor_allowed,
+            # Lets a client offer only the presets that fit the boundary it is
+            # editing, instead of guessing from passage/barrier (which cannot
+            # distinguish an interior door from an outside one).
+            "scope": definition.scope.value,
         }
         for preset, definition in CONNECTION_PRESETS.items()
     ]
@@ -305,14 +334,23 @@ def _validate_connections(connections: list[dict[str, Any]], *, allow_inline_tru
     return None
 
 
-@callback
-def _send_snapshot_result(
-    hass: HomeAssistant,
-    connection: ActiveConnection,
-    msg_id: int,
-    payload: dict[str, Any],
-) -> None:
-    connection.send_result(msg_id, payload)
+def _dedupe_connections[T: Mapping[str, Any]](connections: list[T]) -> list[T]:
+    """Drop byte-identical duplicates from a bundle, keeping the first of each.
+
+    A bundle models distinct ways to cross the same boundary (a stair *and* a
+    lift), so two identical entries carry no information — they only inflate the
+    ``connection_index`` space that the perimeter list and the binary sensor
+    index into. Order is preserved because the index is part of the read contract.
+    """
+    seen: set[str] = set()
+    result: list[T] = []
+    for connection in connections:
+        fingerprint = repr(sorted(connection.items()))
+        if fingerprint in seen:
+            continue
+        seen.add(fingerprint)
+        result.append(connection)
+    return result
 
 
 # --- read commands ---------------------------------------------------------
@@ -341,6 +379,7 @@ async def ws_list_annotations(
             "edges": _serialize_edges(snapshot, area_reg, floor_reg),
             "floors": _serialize_floors(snapshot, floor_reg),
             "presets": _serialize_presets(),
+            "area_types": _serialize_area_types(),
         },
     )
 
@@ -371,7 +410,7 @@ async def ws_read_hook(
             "areas": _serialize_areas(snapshot, area_reg),
             "edges": _serialize_edges(snapshot, area_reg, floor_reg),
             "perimeter": derive_perimeter(snapshot, area_reg),
-            "health": build_health(snapshot, area_reg),
+            "health": build_health(snapshot, area_reg, floor_reg),
         },
     )
 
@@ -388,7 +427,7 @@ async def ws_health(
     if runtime is None:
         connection.send_error(msg["id"], ERR_NOT_LOADED, "No topology entry is loaded")
         return
-    connection.send_result(msg["id"], build_health(runtime.coordinator.data, ar.async_get(hass)))
+    connection.send_result(msg["id"], build_health(runtime.coordinator.data, ar.async_get(hass), fr.async_get(hass)))
 
 
 @websocket_command({vol.Required("type"): "topology/subscribe_updates"})
@@ -443,6 +482,8 @@ async def ws_neighbors(
             "area_id": neighbor.area_id,
             "edge_id": neighbor.edge_id,
             "axis": neighbor.axis,
+            # Signed from the queried area: positive = the neighbour is above.
+            "level_delta": neighbor.level_delta,
             "is_perimeter": neighbor.is_perimeter,
             "traversable": neighbor.traversable,
         }
@@ -476,15 +517,19 @@ async def ws_path(
         if area_reg.async_get_area(area_id) is None:
             connection.send_error(msg["id"], ERR_AREA_NOT_FOUND, f"Unknown area {area_id}")
             return
-    path = shortest_path(
-        runtime.coordinator.derived.graph,
-        src,
-        dst,
-        traversable_only=msg["traversable_only"],
-    )
+    graph = runtime.coordinator.derived.graph
+    path = shortest_path(graph, src, dst, traversable_only=msg["traversable_only"])
     connection.send_result(
         msg["id"],
-        {"from": src, "to": dst, "path": path, "hops": (len(path) - 1) if path is not None else -1},
+        {
+            "from": src,
+            "to": dst,
+            "path": path,
+            "hops": (len(path) - 1) if path is not None else -1,
+            # Weighted: hops plus every storey change along the way. ``null`` when
+            # a level on the path is unresolvable, or when there is no path.
+            "distance": path_distance(graph, path) if path is not None else None,
+        },
     )
 
 
@@ -584,6 +629,7 @@ async def ws_upsert_edge(
     if (error := _validate_connections(connections, allow_inline_trust=False)) is not None:
         connection.send_error(msg["id"], error, "Invalid connection")
         return
+    connections = _dedupe_connections(connections)
 
     try:
         _snapshot, edge_id = await runtime.store.async_upsert_edge(area_a, area_b, connections)
@@ -726,6 +772,7 @@ async def ws_set_exterior_connections(
     if (error := _validate_connections(connections, allow_inline_trust=True)) is not None:
         connection.send_error(msg["id"], error, "Invalid connection")
         return
+    connections = _dedupe_connections(connections)
     try:
         await runtime.store.async_set_exterior_connections(area_id, connections)
     except HomeAssistantError as err:
@@ -844,8 +891,9 @@ def _validate_area_annotation(annotation: dict[str, Any]) -> str | None:
     trust = annotation.get("trust")
     if "trust" in annotation and trust is not None and trust not in _TRUST_VALUES:
         return ERR_INVALID_ENUM
-    # ``type`` is an open catalog (§2.4 rule 5): any string is legal.
-    _ = AREA_TYPE_CATALOG
+    # ``type`` is an open catalog (§2.4 rule 5): any string is legal, so
+    # AREA_TYPE_CATALOG is a suggestion list (shipped by _serialize_area_types),
+    # never a validation set.
     return None
 
 

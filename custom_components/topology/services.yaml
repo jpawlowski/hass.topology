@@ -68,6 +68,7 @@ declare_connection:
             - lift
             - loft_ladder
             - ramp
+            - hatch
             - window
             - outside_door
     side:

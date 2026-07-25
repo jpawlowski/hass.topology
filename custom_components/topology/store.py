@@ -65,12 +65,15 @@ async def async_migrate_store(
     hass: HomeAssistant,
     data: dict[str, Any],
     old_version: int,
+    old_minor_version: int = 1,
 ) -> dict[str, Any]:
-    """Migrate a stored payload to STORAGE_VERSION (§2.3).
+    """Migrate a stored payload to STORAGE_VERSION/STORAGE_VERSION_MINOR (§2.3).
 
-    For v1 this is an identity that returns a NEW dict without mutating the
-    input. The signature (and its tests) are frozen now so future versions
-    extend a total migration chain.
+    For v1.1 this is an identity that returns a NEW dict without mutating the
+    input. Both version components are parameters so a future migration chain can
+    branch on either — the minor was previously read from the envelope and then
+    dropped here, which would have made a minor-only migration impossible to
+    express.
     """
     return dict(data)
 
@@ -106,7 +109,10 @@ class _TopologyStoreBackend(Store[TopologyStoreData]):
         old_data: dict[str, Any],
     ) -> TopologyStoreData:
         """Delegate migration to the module-level hook (§2.3)."""
-        return cast("TopologyStoreData", await async_migrate_store(self.hass, old_data, old_major_version))
+        return cast(
+            "TopologyStoreData",
+            await async_migrate_store(self.hass, old_data, old_major_version, old_minor_version),
+        )
 
 
 class TopologyStore:
@@ -157,10 +163,13 @@ class TopologyStore:
         data = envelope.get("data")
         if not isinstance(data, dict):
             raise StoreCorruptError("topology store envelope has no data object")
+        data = cast("dict[str, Any]", data)
 
         if version < STORAGE_VERSION:
             minor = int(envelope.get("minor_version", 1))
-            migrated = await self._store._async_migrate_func(version, minor, data)  # noqa: SLF001
+            # Routing through the Store's own hook keeps a single migration entry
+            # point (§2.3); it is protected, and calling it here is deliberate.
+            migrated = await self._store._async_migrate_func(version, minor, data)  # noqa: SLF001 # pyright: ignore[reportPrivateUsage]
             self._data = migrated
             await self._store.async_save(self._data)
         else:
@@ -188,7 +197,9 @@ class TopologyStore:
             raise StoreCorruptError(f"topology store at {path} is not valid JSON") from err
         if not isinstance(envelope, dict):
             raise StoreCorruptError(f"topology store at {path} is not an object")
-        return envelope
+        # json.loads is untyped; the isinstance above is the only guarantee about
+        # this payload, so state exactly that and nothing more.
+        return cast("dict[str, Any]", envelope)
 
     # --- persistence -------------------------------------------------------
 
@@ -222,7 +233,10 @@ class TopologyStore:
         if project_trust is not None:
             toggles["trust"] = project_trust
         if unannotated_repair_threshold is not None:
-            home["unannotated_repair_threshold"] = unannotated_repair_threshold
+            # Same 1..100 range the WebSocket command enforces. Clamping rather
+            # than raising keeps a legacy entry loadable while making the stored
+            # value one the panel can actually round-trip.
+            home["unannotated_repair_threshold"] = max(1, min(100, unannotated_repair_threshold))
         self._schedule_save()
         return self.snapshot()
 
@@ -307,10 +321,6 @@ class TopologyStore:
         self._schedule_save()
         return self.snapshot()
 
-    def area_exists(self, area_id: str) -> bool:
-        """Return whether the store already holds an annotation for the area."""
-        return area_id in self._data["areas"]
-
     # --- edges -------------------------------------------------------------
 
     def edge_exists(self, edge_id: str) -> bool:
@@ -359,10 +369,6 @@ class TopologyStore:
 
     # --- floors ------------------------------------------------------------
 
-    def floor_exists(self, floor_id: str) -> bool:
-        """Return whether a floor override is present in the store."""
-        return floor_id in self._data["floors"]
-
     async def async_set_floor_level(
         self,
         floor_id: str,
@@ -397,11 +403,6 @@ class TopologyStore:
         if affected:
             self._schedule_save()
         return self.snapshot(), affected
-
-    def area_orphaned(self, area_id: str) -> bool:
-        """Return whether the store holds an orphaned annotation for the area."""
-        area = self._data["areas"].get(area_id)
-        return area is not None and "orphaned_at" in area
 
     async def async_restore_area(
         self,

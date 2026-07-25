@@ -45,8 +45,13 @@ async def test_ws_list_annotations_snapshot(
     result = response["result"]
     area_ids = {area["area_id"] for area in result["areas"]}
     assert {"flur", "wohnzimmer", "kueche"} <= area_ids
-    assert len(result["presets"]) == 10
+    assert len(result["presets"]) == 11
     assert result["home_config"]["occupancy_extent"] == "whole_property"
+    # The type catalog + cascade ship with the snapshot so the panel holds no
+    # second copy of either (the preset table's rule, applied to types).
+    assert "bedroom" in result["area_types"]["catalog"]
+    assert result["area_types"]["cascade"]["bedroom"] == {"environment": "indoor", "trust": "private"}
+    assert result["area_types"]["cascade"]["terrace"]["trust"] is None
 
 
 async def test_ws_update_area_success(
@@ -513,6 +518,76 @@ async def test_ws_read_hook_axis_derivation(
     assert edges["::".join(sorted([flur.id, kueche.id]))] == "horizontal"
     assert edges["::".join(sorted([flur.id, solo.id]))] == "unknown"
 
+    # level_delta carries the direction the axis cannot: signed area_a -> area_b.
+    deltas = {edge["edge_id"]: edge["level_delta"] for edge in response["result"]["edges"]}
+    vertical_id = "::".join(sorted([flur.id, wohn.id]))
+    area_a = next(e["area_a"] for e in response["result"]["edges"] if e["edge_id"] == vertical_id)
+    assert deltas[vertical_id] == (1 if area_a == flur.id else -1)
+    assert deltas["::".join(sorted([flur.id, kueche.id]))] == 0
+    assert deltas["::".join(sorted([flur.id, solo.id]))] is None
+
+
+async def test_ws_floors_ordered_top_down(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """Floors are served highest level first, unlevelled last, whatever the registry order.
+
+    The registry lists floors in creation order, so a consumer that renders them
+    as received would show a building upside down. Level 0 is an ordinary ground
+    floor and negatives are basements — only the relative order is used.
+    """
+    floor_reg = fr.async_get(hass)
+    # Deliberately created out of order, with a basement and an unlevelled floor.
+    ground = floor_reg.async_create("Ground", level=0)
+    attic = floor_reg.async_create("Attic", level=2)
+    basement = floor_reg.async_create("Basement", level=-1)
+    loft = floor_reg.async_create("Loft")  # no level at all
+    upper = floor_reg.async_create("Upper", level=1)
+
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id({"type": "topology/list_annotations"})
+    response = await client.receive_json()
+    assert response["success"]
+    order = [floor["floor_id"] for floor in response["result"]["floors"]]
+    assert order == [
+        attic.floor_id,
+        upper.floor_id,
+        ground.floor_id,
+        basement.floor_id,
+        loft.floor_id,
+    ]
+
+
+async def test_ws_upsert_edge_dedupes_identical_connections(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """Identical bundle entries collapse; distinct ones are all kept.
+
+    A bundle models the distinct ways across one boundary, so a repeated entry
+    adds nothing and only shifts the ``connection_index`` that the perimeter list
+    and the binary sensor address.
+    """
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            "type": "topology/upsert_edge",
+            "area_a": "flur",
+            "area_b": "wohnzimmer",
+            "connections": [_DOOR, dict(_DOOR), {"passage": "stairs", "barrier": "open"}],
+        }
+    )
+    response = await client.receive_json()
+    assert response["success"]
+    connections = response["result"]["connections"]
+    assert len(connections) == 2
+    assert connections[0]["passage"] == "level"
+    assert connections[1]["passage"] == "stairs"
+
 
 async def test_ws_health_minimal(
     hass: HomeAssistant,
@@ -538,9 +613,14 @@ async def test_ws_health_minimal(
         "indoor_areas_without_floor",
         "contradictory_bearings",
         "exterior_on_non_outdoor_side",
+        # Edge-geometry advisories; these two hold edge_ids, not area_ids.
+        "edges_spanning_multiple_floors",
+        "vertical_edges_without_vertical_passage",
     }
     assert health["isolated_areas"] == []
     assert health["indoor_areas_without_floor"] == []
+    assert health["edges_spanning_multiple_floors"] == []
+    assert health["vertical_edges_without_vertical_passage"] == []
 
 
 async def test_ws_subscribe_updates(

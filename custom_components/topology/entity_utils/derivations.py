@@ -14,17 +14,23 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 from custom_components.topology.data import (
+    OPPOSITE_SIDE,
     TRUST_ORDER,
     AreaProjection,
     BeyondClass,
     ConsistencyReport,
     Environment,
     HouseProjection,
+    Passage,
     PerimeterConnection,
     TopologyDerived,
     Trust,
 )
 from homeassistant.util import slugify
+
+# Passages that actually move a person between storeys. A vertical edge whose
+# bundle contains none of these climbs nothing.
+_VERTICAL_PASSAGES = frozenset({Passage.STAIRS, Passage.RAMP, Passage.ELEVATOR, Passage.LADDER, Passage.HATCH})
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -60,6 +66,23 @@ def is_perimeter_edge(edge: Edge, area_trust: dict[str, Trust | None]) -> bool:
     return any(connection.perimeter_override for connection in edge.connections)
 
 
+def _perimeter_owner(edge: Edge, area_trust: dict[str, Trust | None]) -> str:
+    """Return the area a perimeter edge's connections belong to.
+
+    A perimeter edge guards the *more private* side, so that is the room the
+    entry is attributed to — picking ``edge.area_a`` would report whichever
+    ``area_id`` happens to sort first, which is arbitrary (the sibling
+    ``connections_facing_outdoor`` was fixed for the same class of bug, PR-review
+    r3645648771). Ties — equal or unknown trust, i.e. a ``perimeter_override``
+    boundary — are genuinely symmetric, so ``area_a`` stays the stable choice.
+    """
+    trust_a = area_trust.get(edge.area_a)
+    trust_b = area_trust.get(edge.area_b)
+    if trust_a is None or trust_b is None:
+        return edge.area_a
+    return edge.area_b if TRUST_ORDER[trust_b] < TRUST_ORDER[trust_a] else edge.area_a
+
+
 def _iter_perimeter(
     snapshot: TopologySnapshot,
 ) -> Iterator[tuple[str, str | None, str, int, str | None]]:
@@ -86,8 +109,9 @@ def _iter_perimeter(
     for edge in snapshot.edges:
         if edge.orphaned_at is not None or not is_perimeter_edge(edge, area_trust):
             continue
+        owner_id = _perimeter_owner(edge, area_trust)
         for index, connection in enumerate(edge.connections):
-            yield "edge", edge.edge_id, edge.area_a, index, connection.sensor_entity_id
+            yield "edge", edge.edge_id, owner_id, index, connection.sensor_entity_id
 
 
 def derive_perimeter(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> list[dict[str, Any]]:
@@ -203,8 +227,47 @@ def _live_registry_ids(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> se
     }
 
 
-def derive_consistency(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> ConsistencyReport:
-    """Compute the four graph-consistency lists (§3). Non-orphaned registry areas only."""
+def _derive_edge_geometry(
+    snapshot: TopologySnapshot,
+    area_reg: AreaRegistry,
+    floor_reg: FloorRegistry,
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    """Return ``(edges_spanning_multiple_floors, vertical_edges_without_vertical_passage)``.
+
+    Both are advisory. An edge is only judged where both levels resolve, so an
+    area without a floor is never flagged here — that is the
+    ``indoor_areas_without_floor`` check's job.
+    """
+    # Local import: graph imports this module, so the dependency only closes here.
+    from custom_components.topology.entity_utils.graph import edge_levels  # noqa: PLC0415
+
+    overrides = {override.floor_id: override for override in snapshot.floors}
+    spanning: list[str] = []
+    flat_vertical: list[str] = []
+    for edge in snapshot.edges:
+        if edge.orphaned_at is not None:
+            continue
+        axis, delta = edge_levels(edge, area_reg, floor_reg, overrides)
+        if axis != "vertical" or delta is None:
+            continue
+        if abs(delta) > 1:
+            spanning.append(edge.edge_id)
+        if not any(connection.passage in _VERTICAL_PASSAGES for connection in edge.connections):
+            flat_vertical.append(edge.edge_id)
+    return tuple(sorted(spanning)), tuple(sorted(flat_vertical))
+
+
+def derive_consistency(
+    snapshot: TopologySnapshot,
+    area_reg: AreaRegistry,
+    floor_reg: FloorRegistry | None = None,
+) -> ConsistencyReport:
+    """Compute the graph-consistency lists (§3). Non-orphaned registry areas only.
+
+    ``floor_reg`` is optional so a caller that only wants the area-level lists
+    need not resolve the floor registry; the two edge-geometry lists come back
+    empty without it, since a level cannot be resolved at all.
+    """
     registry_areas = {area.id: area for area in area_reg.async_list_areas()}
     annotations = {annotation.area_id: annotation for annotation in snapshot.areas}
     live_ids = _live_registry_ids(snapshot, area_reg)
@@ -223,8 +286,11 @@ def derive_consistency(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> Co
         connected.add(edge.area_b)
         for connection in edge.connections:
             if connection.side is not None:
+                # ``side`` is recorded from area_a's perspective; area_b meets the
+                # same wall from the opposite bearing (master §1), so mirroring is
+                # what makes the bearing check compare the right sides.
                 edge_sides.setdefault(edge.area_a, set()).add(connection.side.value)
-                edge_sides.setdefault(edge.area_b, set()).add(connection.side.value)
+                edge_sides.setdefault(edge.area_b, set()).add(OPPOSITE_SIDE[connection.side].value)
     isolated = tuple(sorted(area_id for area_id in live_ids if area_id not in connected))
 
     indoor_without_floor: list[str] = []
@@ -260,11 +326,17 @@ def derive_consistency(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> Co
                 exterior_bad.append(area_id)
                 break
 
+    spanning, flat_vertical = (
+        _derive_edge_geometry(snapshot, area_reg, floor_reg) if floor_reg is not None else ((), ())
+    )
+
     return ConsistencyReport(
         isolated_areas=isolated,
         indoor_areas_without_floor=tuple(sorted(indoor_without_floor)),
         contradictory_bearings=tuple(sorted(contradictory)),
         exterior_on_non_outdoor_side=tuple(sorted(exterior_bad)),
+        edges_spanning_multiple_floors=spanning,
+        vertical_edges_without_vertical_passage=flat_vertical,
     )
 
 
@@ -336,11 +408,15 @@ def derive(
         live_area_ids=live_area_ids,
         perimeter=derive_perimeter_connections(snapshot, area_reg),
         graph=build_graph(snapshot, area_reg, floor_reg, overrides),
-        consistency=derive_consistency(snapshot, area_reg),
+        consistency=derive_consistency(snapshot, area_reg, floor_reg),
     )
 
 
-def build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[str, Any]:
+def build_health(
+    snapshot: TopologySnapshot,
+    area_reg: AreaRegistry,
+    floor_reg: FloorRegistry | None = None,
+) -> dict[str, Any]:
     """Compute the consistency/health signal (§4.11); Phase-4 lists filled.
 
     The single source of the ``health`` payload, shared by the WebSocket
@@ -359,11 +435,13 @@ def build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[str
         {"scope": u.scope, "id": u.id, "field": u.field_name, "value": u.value} for u in snapshot.unknown_enum_values
     ]
 
-    consistency = derive_consistency(snapshot, area_reg)
+    consistency = derive_consistency(snapshot, area_reg, floor_reg)
     isolated_areas = list(consistency.isolated_areas)
     indoor_areas_without_floor = list(consistency.indoor_areas_without_floor)
     contradictory_bearings = list(consistency.contradictory_bearings)
     exterior_on_non_outdoor_side = list(consistency.exterior_on_non_outdoor_side)
+    edges_spanning_multiple_floors = list(consistency.edges_spanning_multiple_floors)
+    vertical_edges_without_vertical_passage = list(consistency.vertical_edges_without_vertical_passage)
 
     lists = [
         unannotated,
@@ -375,6 +453,8 @@ def build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[str
         indoor_areas_without_floor,
         contradictory_bearings,
         exterior_on_non_outdoor_side,
+        edges_spanning_multiple_floors,
+        vertical_edges_without_vertical_passage,
     ]
     status = "warning" if any(lists) else "ok"
 
@@ -392,4 +472,7 @@ def build_health(snapshot: TopologySnapshot, area_reg: AreaRegistry) -> dict[str
         "indoor_areas_without_floor": indoor_areas_without_floor,
         "contradictory_bearings": contradictory_bearings,
         "exterior_on_non_outdoor_side": exterior_on_non_outdoor_side,
+        # Edge-geometry advisories: these hold edge_ids, not area_ids.
+        "edges_spanning_multiple_floors": edges_spanning_multiple_floors,
+        "vertical_edges_without_vertical_passage": vertical_edges_without_vertical_passage,
     }

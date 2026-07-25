@@ -6,8 +6,10 @@ One-shot alias/label import executor (PLAN-topology-phase6.md §2.7).
 matches ``area.aliases ∪ {area.name}`` (slugified) against ``AREA_TYPE_CATALOG``
 and cascades ``environment``/``trust`` via ``TYPE_CASCADE``; ``labels`` matches
 label names against the ``Environment`` value set and ``AREA_TYPE_CATALOG``.
-Called by the ``import_from_core`` service and once at setup when opted-in and
-not yet stamped (§2.7.2).
+
+Driven by the ``import_from_core`` service alone — the panel's first-run card is
+the user-facing trigger. Setup deliberately runs no import: an opt-in that fires
+before the user has seen the result is not undoable, so the card asks first.
 """
 
 from __future__ import annotations

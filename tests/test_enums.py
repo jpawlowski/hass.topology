@@ -30,16 +30,17 @@ if TYPE_CHECKING:
     from homeassistant.core import HomeAssistant
 
 _PRESET_EXPECTATIONS = {
-    ConnectionPreset.INTERIOR_DOOR: (Passage.LEVEL, Barrier.DOOR, False, True),
-    ConnectionPreset.OPEN_PASSAGE: (Passage.LEVEL, Barrier.OPEN, False, False),
-    ConnectionPreset.SHARED_WALL: (Passage.NONE, Barrier.SOLID, False, False),
-    ConnectionPreset.OPEN_STAIR: (Passage.STAIRS, Barrier.OPEN, False, False),
-    ConnectionPreset.ENCLOSED_STAIR: (Passage.STAIRS, Barrier.DOOR, False, True),
-    ConnectionPreset.LIFT: (Passage.ELEVATOR, Barrier.DOOR, False, True),
-    ConnectionPreset.LOFT_LADDER: (Passage.LADDER, Barrier.DOOR, False, True),
-    ConnectionPreset.RAMP: (Passage.RAMP, Barrier.OPEN, False, False),
-    ConnectionPreset.WINDOW: (Passage.NONE, Barrier.DOOR, True, True),
-    ConnectionPreset.OUTSIDE_DOOR: (Passage.LEVEL, Barrier.DOOR, False, True),
+    ConnectionPreset.INTERIOR_DOOR: (Passage.LEVEL, Barrier.DOOR, False, True, "interior"),
+    ConnectionPreset.OPEN_PASSAGE: (Passage.LEVEL, Barrier.OPEN, False, False, "interior"),
+    ConnectionPreset.SHARED_WALL: (Passage.NONE, Barrier.SOLID, False, False, "interior"),
+    ConnectionPreset.OPEN_STAIR: (Passage.STAIRS, Barrier.OPEN, False, False, "interior"),
+    ConnectionPreset.ENCLOSED_STAIR: (Passage.STAIRS, Barrier.DOOR, False, True, "interior"),
+    ConnectionPreset.LIFT: (Passage.ELEVATOR, Barrier.DOOR, False, True, "interior"),
+    ConnectionPreset.LOFT_LADDER: (Passage.LADDER, Barrier.DOOR, False, True, "interior"),
+    ConnectionPreset.RAMP: (Passage.RAMP, Barrier.OPEN, False, False, "interior"),
+    ConnectionPreset.HATCH: (Passage.HATCH, Barrier.DOOR, False, True, "interior"),
+    ConnectionPreset.WINDOW: (Passage.NONE, Barrier.DOOR, True, True, "exterior"),
+    ConnectionPreset.OUTSIDE_DOOR: (Passage.LEVEL, Barrier.DOOR, False, True, "exterior"),
 }
 
 
@@ -76,20 +77,24 @@ def test_enum_catalog_frozen() -> None:
         "lift",
         "loft_ladder",
         "ramp",
+        # Additive: the only preset that reaches Passage.HATCH, which was
+        # otherwise unreachable from every supported UI path.
+        "hatch",
         "window",
         "outside_door",
     }
 
 
 def test_preset_expansion_table() -> None:
-    """Every §3.9 preset expands to the frozen passage/barrier/glazed/sensor."""
+    """Every §3.9 preset expands to the frozen passage/barrier/glazed/sensor/scope."""
     assert set(CONNECTION_PRESETS) == set(_PRESET_EXPECTATIONS)
-    for preset, (passage, barrier, glazed, sensor) in _PRESET_EXPECTATIONS.items():
+    for preset, (passage, barrier, glazed, sensor, scope) in _PRESET_EXPECTATIONS.items():
         definition = CONNECTION_PRESETS[preset]
         assert definition.passage is passage
         assert definition.barrier is barrier
         assert definition.glazed_default is glazed
         assert definition.sensor_allowed is sensor
+        assert definition.scope.value == scope
 
 
 def test_trust_ordering() -> None:

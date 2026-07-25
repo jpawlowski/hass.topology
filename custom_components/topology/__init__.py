@@ -24,6 +24,7 @@ from homeassistant.components.http import StaticPathConfig
 from homeassistant.const import Platform
 from homeassistant.exceptions import ConfigEntryError, ConfigEntryNotReady, HomeAssistantError
 from homeassistant.helpers import config_validation as cv, issue_registry as ir
+from homeassistant.helpers.typing import ConfigType
 
 from .const import (
     CONF_OCCUPANCY_EXTENT,
@@ -65,10 +66,11 @@ PLATFORMS: list[Platform] = [
 ]
 
 # Topology is configured via config entries only (no YAML configuration).
-CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)
+# The helper is unannotated in Home Assistant, so its schema type is opaque here.
+CONFIG_SCHEMA = cv.config_entry_only_config_schema(DOMAIN)  # pyright: ignore[reportUnknownVariableType, reportUnknownMemberType]
 
 
-async def async_setup(hass: HomeAssistant, config: dict) -> bool:
+async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
     """Set up the integration.
 
     Called once at Home Assistant startup. WebSocket commands (cluster e) and

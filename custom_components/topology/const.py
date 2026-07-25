@@ -58,6 +58,11 @@ ISSUE_ISOLATED_AREAS = "isolated_areas"
 ISSUE_INDOOR_WITHOUT_FLOOR = "indoor_areas_without_floor"
 ISSUE_CONTRADICTORY_BEARINGS = "contradictory_bearings"
 ISSUE_EXTERIOR_NON_OUTDOOR = "exterior_on_non_outdoor_side"
+# Edge-geometry advisories. Both are prompts to check the model, never errors:
+# a void or an atrium legitimately spans storeys, and the panel deliberately
+# still lets such an edge be created.
+ISSUE_EDGES_SPANNING_FLOORS = "edges_spanning_multiple_floors"
+ISSUE_VERTICAL_WITHOUT_PASSAGE = "vertical_edges_without_vertical_passage"
 
 # --- events (§4.13) --------------------------------------------------------
 # Fired on every store mutation and registry-driven change; payload mirrors the
@@ -105,6 +110,11 @@ ISSUE_DEEP_LINKS: dict[str, str] = {
     ISSUE_CONTRADICTORY_BEARINGS: f"{_PANEL_DEEP_LINK}?focus=bearings",
     ISSUE_EXTERIOR_NON_OUTDOOR: f"{_PANEL_DEEP_LINK}?focus=exterior",
     ISSUE_ORPHANED_ENTRIES: f"{_PANEL_DEEP_LINK}?focus=orphans",
+    # Both geometry advisories land on the same scope: it lists the flagged
+    # edges, and either one is fixed by opening the edge or by correcting a
+    # floor assignment.
+    ISSUE_EDGES_SPANNING_FLOORS: f"{_PANEL_DEEP_LINK}?focus=geometry",
+    ISSUE_VERTICAL_WITHOUT_PASSAGE: f"{_PANEL_DEEP_LINK}?focus=geometry",
 }
 
 # --- service actions (Phase 6, PLAN-topology-phase6.md §2) ------------------

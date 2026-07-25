@@ -17,8 +17,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.helpers import area_registry as ar
-from homeassistant.helpers.redact import async_redact_data
+from homeassistant.helpers import area_registry as ar, floor_registry as fr
+
+# Unannotated in Home Assistant; the redaction result type is opaque here.
+from homeassistant.helpers.redact import async_redact_data  # pyright: ignore[reportUnknownVariableType]
 
 from .const import STORAGE_VERSION
 from .entity_utils.derivations import build_health
@@ -78,7 +80,7 @@ async def async_get_config_entry_diagnostics(
     edges = [_edge_out(edge, pseudo) for edge in snapshot.edges]
     floors = [_floor_out(override, pseudo) for override in snapshot.floors]
     unknown_enum_values = [_unknown_out(unknown, pseudo) for unknown in snapshot.unknown_enum_values]
-    health = _health_out(build_health(snapshot, area_reg), pseudo)
+    health = _health_out(build_health(snapshot, area_reg, fr.async_get(hass)), pseudo)
 
     payload: dict[str, Any] = {
         "meta": {
@@ -203,6 +205,13 @@ def _health_out(health: dict[str, Any], pseudo: _Pseudonymizer) -> dict[str, Any
     out["indoor_areas_without_floor"] = [pseudo.area(area_id) for area_id in health["indoor_areas_without_floor"]]
     out["contradictory_bearings"] = [pseudo.area(area_id) for area_id in health["contradictory_bearings"]]
     out["exterior_on_non_outdoor_side"] = [pseudo.area(area_id) for area_id in health["exterior_on_non_outdoor_side"]]
+    # The two geometry advisories carry edge_ids, so they go through the edge map.
+    out["edges_spanning_multiple_floors"] = [
+        pseudo.edge(edge_id) for edge_id in health["edges_spanning_multiple_floors"]
+    ]
+    out["vertical_edges_without_vertical_passage"] = [
+        pseudo.edge(edge_id) for edge_id in health["vertical_edges_without_vertical_passage"]
+    ]
     out["unknown_enum_values"] = [
         {
             "scope": entry["scope"],
