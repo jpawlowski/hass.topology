@@ -69,6 +69,12 @@ export interface EdgeOut {
   area_a: string;
   area_b: string;
   axis: EdgeAxis;
+  /**
+   * Signed effective-level difference from `area_a` to `area_b`: positive means
+   * `area_b` is the upper area, `null` when either side has no resolvable level.
+   * `axis` says only *that* an edge is vertical, never which way is up.
+   */
+  level_delta: number | null;
   is_perimeter: boolean;
   connections: ConnectionOut[];
   orphaned_at: string | null;
@@ -83,6 +89,9 @@ export interface FloorOut {
   effective_level: number | null;
 }
 
+/** Where a preset may be used (`data.PresetScope`). */
+export type PresetScope = "interior" | "exterior";
+
 /** Serialized preset row from the shipped table (`_serialize_presets`). */
 export interface PresetOut {
   preset_name: string;
@@ -90,6 +99,18 @@ export interface PresetOut {
   barrier: Barrier;
   glazed_default: boolean;
   sensor_allowed: boolean;
+  /** Interior (between two areas) vs exterior (window / outside door). */
+  scope: PresetScope;
+}
+
+/**
+ * Shipped area-type catalog + cascade (`_serialize_area_types`). The catalog is
+ * open — any string is a legal `type` — these are the suggestions, and the
+ * cascade is what each one pre-fills for `environment`/`trust`.
+ */
+export interface AreaTypesOut {
+  catalog: string[];
+  cascade: Record<string, { environment: Environment | null; trust: Trust | null }>;
 }
 
 /** Serialized home config (`_serialize_home_config`). */
@@ -105,8 +126,10 @@ export interface ListAnnotationsResult {
   home_config: HomeConfigOut;
   areas: AreaOut[];
   edges: EdgeOut[];
+  /** Ordered highest `effective_level` first; unlevelled floors last. */
   floors: FloorOut[];
   presets: PresetOut[];
+  area_types: AreaTypesOut;
 }
 
 /** `topology/health` result (`build_health`). */
@@ -123,6 +146,9 @@ export interface HealthResult {
   indoor_areas_without_floor: string[];
   contradictory_bearings: string[];
   exterior_on_non_outdoor_side: string[];
+  /** Edge ids, not area ids: an implausible boundary belongs to neither room. */
+  edges_spanning_multiple_floors: string[];
+  vertical_edges_without_vertical_passage: string[];
 }
 
 /** `topology/subscribe_updates` event payload (§4.12). */

@@ -1,9 +1,15 @@
 /**
  * The per-floor 2D map (Phase 7 §2.5) — explicitly 2D in v1 (master §7). A
  * read-only renderer: it draws area nodes (tinted by trust, styled by
- * environment) and interior edges (styled by the most-permeable connection,
- * perimeter highlighted), overlays the `health` consistency flags, and emits
- * selection events. It never writes.
+ * environment) and edges (styled by the most-permeable connection, perimeter
+ * highlighted), overlays the `health` consistency flags, and emits selection
+ * events. It never writes.
+ *
+ * The `viewBox` follows the layout's own bounding box rather than a fixed
+ * 1000×700 window, so a node can never be laid out outside the visible area; pan
+ * and zoom are for reading detail, not for reaching content. Areas are grouped
+ * into per-floor bands (see `./layout`), which is what makes the picture show
+ * what is above what before any connection exists.
  *
  * Card-reuse boundary (§4.2, D15): this element imports no editor, no write
  * command, and none of the panel's route/panel props — it takes plain data +
@@ -12,13 +18,13 @@
  */
 
 import { LitElement, html, svg, css, nothing } from "lit";
-import { customElement, property } from "lit/decorators.js";
-import type { AreaOut, EdgeOut, FloorOut, HealthResult } from "../api/types";
+import { customElement, property, state } from "lit/decorators.js";
+import type { AreaOut, EdgeOut, Environment, FloorOut, HealthResult, Trust } from "../api/types";
 import type { HomeAssistant } from "../ha";
 import type { FocusScope } from "../router";
-import { computeLayout } from "./layout";
+import { computeLayout, type Extent, type LayoutNode, type Point } from "./layout";
 import { edgeStyle, environmentClass, needsAnnotation, trustTint } from "./styling";
-import { localize } from "../i18n/localize";
+import { enumLabel, localize } from "../i18n/localize";
 
 /** Sentinel floor id for the outdoor / unfloored bucket (§2.5). */
 export const OUTDOOR_BUCKET = "__outdoor__";
@@ -32,6 +38,11 @@ const FOCUS_HEALTH_KEY: Partial<Record<FocusScope, keyof HealthResult>> = {
   exterior: "exterior_on_non_outdoor_side",
 };
 
+const NODE_WIDTH = 150;
+const NODE_HEIGHT = 64;
+const MIN_ZOOM = 0.4;
+const MAX_ZOOM = 4;
+
 @customElement("topology-floor-map")
 export class TopologyFloorMap extends LitElement {
   @property({ attribute: false }) public hass!: HomeAssistant;
@@ -41,6 +52,13 @@ export class TopologyFloorMap extends LitElement {
   @property({ attribute: false }) public health: HealthResult | null = null;
   @property({ attribute: false }) public activeFloor: string | null = null;
   @property({ attribute: false }) public focusScope: FocusScope | null = null;
+  @property({ attribute: false }) public selectedAreaId: string | null = null;
+  @property({ attribute: false }) public selectedEdgeId: string | null = null;
+
+  /** User pan/zoom, as a viewBox. `null` means "follow the content extent". */
+  @state() private viewOverride: Extent | null = null;
+
+  private panStart: { pointerId: number; x: number; y: number; view: Extent } | null = null;
 
   private areaFloor(areaId: string): string {
     const area = this.hass?.areas?.[areaId];
@@ -53,6 +71,27 @@ export class TopologyFloorMap extends LitElement {
       return name;
     }
     return annotation.type ?? areaId;
+  }
+
+  private floorName(floorId: string | null): string {
+    if (floorId === null || floorId === OUTDOOR_BUCKET) {
+      return localize("panel.floor.outdoor");
+    }
+    return this.hass?.floors?.[floorId]?.name ?? floorId;
+  }
+
+  /**
+   * Edge ids flagged by the active focus scope. The consistency overlay used to
+   * flag areas only, so a scope whose findings are boundaries highlighted nothing.
+   */
+  private flaggedEdges(): Set<string> {
+    if (this.focusScope !== "geometry" || this.health === null) {
+      return new Set();
+    }
+    return new Set([
+      ...(this.health.edges_spanning_multiple_floors ?? []),
+      ...(this.health.vertical_edges_without_vertical_passage ?? []),
+    ]);
   }
 
   /** Area ids flagged by the active focus scope, from the live health lists. */
@@ -75,36 +114,138 @@ export class TopologyFloorMap extends LitElement {
     return this.areas.filter((area) => this.areaFloor(area.area_id) === this.activeFloor);
   }
 
+  /** Floor ids top-down, as the server ordered them, plus the unfloored bucket. */
+  private floorOrder(): string[] {
+    return [...this.floors.map((floor) => floor.floor_id), OUTDOOR_BUCKET];
+  }
+
   protected override render() {
     const areas = this.visibleAreas();
+    if (areas.length === 0) {
+      return html`<div class="empty">${localize("map.empty")}</div>`;
+    }
     const visibleIds = new Set(areas.map((area) => area.area_id));
-    const layout = computeLayout(areas.map((area) => area.area_id));
+    const nodes: LayoutNode[] = areas.map((area) => ({
+      areaId: area.area_id,
+      floorId: this.areaFloor(area.area_id),
+    }));
+    const layout = computeLayout(nodes, this.floorOrder(), {
+      nodeWidth: NODE_WIDTH,
+      nodeHeight: NODE_HEIGHT,
+    });
     const flagged = this.flaggedAreas();
+    const flaggedEdges = this.flaggedEdges();
     const edges = this.edges.filter(
-      (edge) =>
-        !edge.orphaned_at && visibleIds.has(edge.area_a) && visibleIds.has(edge.area_b),
+      (edge) => !edge.orphaned_at && visibleIds.has(edge.area_a) && visibleIds.has(edge.area_b),
     );
+    // Edges leaving the current floor cannot be drawn as a line, but hiding them
+    // silently made vertical connections look undeclared. Count them instead.
+    const offFloor = this.edges.filter(
+      (edge) =>
+        !edge.orphaned_at &&
+        visibleIds.has(edge.area_a) !== visibleIds.has(edge.area_b),
+    ).length;
+    const view = this.viewOverride ?? layout.extent;
+    const viewBox = `${view.x} ${view.y} ${view.width} ${view.height}`;
 
     return html`
-      <svg viewBox="0 0 1000 700" preserveAspectRatio="xMidYMid meet" role="img">
-        <g class="edges">
-          ${edges.map((edge) => this.renderEdge(edge, layout))}
-        </g>
-        <g class="nodes">
-          ${areas.map((area) => this.renderNode(area, layout, flagged.has(area.area_id)))}
-        </g>
-      </svg>
+      <div class="wrap">
+        <svg
+          viewBox=${viewBox}
+          preserveAspectRatio="xMidYMid meet"
+          role="img"
+          @wheel=${this.onWheel}
+          @pointerdown=${this.onPointerDown}
+          @pointermove=${this.onPointerMove}
+          @pointerup=${this.onPointerUp}
+          @pointercancel=${this.onPointerUp}
+          @dblclick=${this.resetView}
+        >
+          <g class="bands">
+            ${layout.bands.length > 1
+              ? layout.bands.map((band) => this.renderBand(band, layout.extent))
+              : nothing}
+          </g>
+          <g class="edges">
+            ${edges.map((edge) => this.renderEdge(edge, layout.positions, flaggedEdges.has(edge.edge_id)))}
+          </g>
+          <g class="nodes">
+            ${areas.map((area) => this.renderNode(area, layout.positions, flagged.has(area.area_id)))}
+          </g>
+        </svg>
+        ${this.renderLegend()}
+        <div class="overlay">
+          ${this.viewOverride !== null
+            ? html`<button class="reset" @click=${this.resetView}>${localize("map.reset_view")}</button>`
+            : nothing}
+          ${offFloor > 0
+            ? html`<p class="offfloor">${localize("map.offfloor", { count: offFloor })}</p>`
+            : nothing}
+          <p class="hint">${localize("map.hint")}</p>
+        </div>
+      </div>
     `;
   }
 
-  private renderEdge(edge: EdgeOut, layout: Map<string, { x: number; y: number }>) {
-    const a = layout.get(edge.area_a);
-    const b = layout.get(edge.area_b);
+  /**
+   * Key to the encoding. The map tints by trust and dashes by environment, which
+   * is unreadable without a key — the legend strings existed but nothing rendered
+   * them.
+   */
+  private renderLegend() {
+    const trusts: Trust[] = ["private", "shared", "public"];
+    const environments: Environment[] = ["indoor", "semi_outdoor", "outdoor"];
+    return html`
+      <div class="legend">
+        <span class="group">
+          <span class="caption">${localize("map.legend.trust")}</span>
+          ${trusts.map(
+            (trust) => html`
+              <span class="item">
+                <span class="swatch trust-${trust}"></span>${enumLabel("trust", trust)}
+              </span>
+            `,
+          )}
+        </span>
+        <span class="group">
+          <span class="caption">${localize("map.legend.environment")}</span>
+          ${environments.map(
+            (environment) => html`
+              <span class="item">
+                <span class="swatch env-${environment}"></span>${enumLabel("environment", environment)}
+              </span>
+            `,
+          )}
+        </span>
+      </div>
+    `;
+  }
+
+  /** A floor band: a tinted strip plus the floor's name, so the stack reads. */
+  private renderBand(band: { floorId: string | null; y: number; height: number }, extent: Extent) {
+    return svg`
+      <g class="band">
+        <rect x="0" y=${band.y - 12} width=${extent.width} height=${band.height + 24} rx="12"></rect>
+        <text class="band-label" x="12" y=${band.y - 18}>${this.floorName(band.floorId)}</text>
+      </g>
+    `;
+  }
+
+  private renderEdge(edge: EdgeOut, positions: Map<string, Point>, isFlagged = false) {
+    const a = positions.get(edge.area_a);
+    const b = positions.get(edge.area_b);
     if (!a || !b) {
       return nothing;
     }
     const style = edgeStyle(edge);
-    const classes = `edge barrier-${style.barrier} ${style.perimeter ? "perimeter" : ""}`;
+    const selected = edge.edge_id === this.selectedEdgeId;
+    const classes = [
+      "edge",
+      `barrier-${style.barrier}`,
+      style.perimeter ? "perimeter" : "",
+      isFlagged ? "flagged" : "",
+      selected ? "selected" : "",
+    ].join(" ");
     return svg`
       <line
         class=${classes}
@@ -119,12 +260,8 @@ export class TopologyFloorMap extends LitElement {
     `;
   }
 
-  private renderNode(
-    area: AreaOut,
-    layout: Map<string, { x: number; y: number }>,
-    isFlagged: boolean,
-  ) {
-    const point = layout.get(area.area_id);
+  private renderNode(area: AreaOut, positions: Map<string, Point>, isFlagged: boolean) {
+    const point = positions.get(area.area_id);
     if (!point) {
       return nothing;
     }
@@ -137,31 +274,120 @@ export class TopologyFloorMap extends LitElement {
       muted ? "muted" : "",
       isFlagged ? "flagged" : "",
       orphaned ? "orphaned" : "",
+      area.area_id === this.selectedAreaId ? "selected" : "",
     ].join(" ");
-    const width = 150;
-    const height = 64;
     return svg`
       <g
         class=${classes}
-        transform="translate(${point.x - width / 2}, ${point.y - height / 2})"
+        transform="translate(${point.x - NODE_WIDTH / 2}, ${point.y - NODE_HEIGHT / 2})"
         tabindex="0"
         @click=${() => this.emitArea(area)}
         @keydown=${(ev: KeyboardEvent) => this.onKey(ev, () => this.emitArea(area))}
       >
-        <rect class="node-body" width=${width} height=${height} rx="10"></rect>
-        <text class="node-label" x=${width / 2} y=${height / 2}>
+        <rect class="node-body" width=${NODE_WIDTH} height=${NODE_HEIGHT} rx="10"></rect>
+        <text class="node-label" x=${NODE_WIDTH / 2} y=${NODE_HEIGHT / 2}>
           ${this.areaName(area.area_id, area)}
         </text>
-        ${muted
-          ? svg`<title>${localize("map.needs_annotation")}</title>`
-          : nothing}
+        ${muted ? svg`<title>${localize("map.needs_annotation")}</title>` : nothing}
         ${orphaned
-          ? svg`<circle class="orphan-badge" cx=${width - 8} cy="8" r="7"></circle>
+          ? svg`<circle class="orphan-badge" cx=${NODE_WIDTH - 8} cy="8" r="7"></circle>
                 <title>${localize("map.orphaned")}</title>`
           : nothing}
       </g>
     `;
   }
+
+  // --- pan / zoom ----------------------------------------------------------
+
+  /** The viewBox currently in effect, resolving the "follow content" default. */
+  private currentView(): Extent {
+    return this.viewOverride ?? this.contentExtent();
+  }
+
+  private onWheel = (ev: WheelEvent): void => {
+    ev.preventDefault();
+    const view = this.currentView();
+    const base = this.contentExtent();
+    const factor = ev.deltaY > 0 ? 1.15 : 1 / 1.15;
+    const width = view.width * factor;
+    // Zoom is bounded relative to the content, so neither gesture can strand the
+    // user at a scale where nothing is findable.
+    if (base.width / width < MIN_ZOOM || base.width / width > MAX_ZOOM) {
+      return;
+    }
+    const height = view.height * factor;
+    // Keep the point under the cursor fixed.
+    const { x: px, y: py } = this.toSvgPoint(ev, view);
+    this.viewOverride = {
+      x: px - ((px - view.x) * width) / view.width,
+      y: py - ((py - view.y) * height) / view.height,
+      width,
+      height,
+    };
+  };
+
+  private contentExtent(): Extent {
+    const nodes: LayoutNode[] = this.visibleAreas().map((area) => ({
+      areaId: area.area_id,
+      floorId: this.areaFloor(area.area_id),
+    }));
+    return computeLayout(nodes, this.floorOrder(), {
+      nodeWidth: NODE_WIDTH,
+      nodeHeight: NODE_HEIGHT,
+    }).extent;
+  }
+
+  /** Map a pointer event to viewBox coordinates. */
+  private toSvgPoint(ev: MouseEvent, view: Extent): Point {
+    const svgEl = ev.currentTarget as SVGSVGElement;
+    const rect = svgEl.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) {
+      return { x: view.x, y: view.y };
+    }
+    // `xMidYMid meet` scales uniformly and centres the leftover space.
+    const scale = Math.min(rect.width / view.width, rect.height / view.height);
+    const offsetX = (rect.width - view.width * scale) / 2;
+    const offsetY = (rect.height - view.height * scale) / 2;
+    return {
+      x: view.x + (ev.clientX - rect.left - offsetX) / scale,
+      y: view.y + (ev.clientY - rect.top - offsetY) / scale,
+    };
+  }
+
+  private onPointerDown = (ev: PointerEvent): void => {
+    // Only start a pan on empty canvas; a node or edge owns its own click.
+    if ((ev.target as Element).closest(".node, .edge") !== null) {
+      return;
+    }
+    const view = this.currentView();
+    this.panStart = { pointerId: ev.pointerId, x: ev.clientX, y: ev.clientY, view };
+    (ev.currentTarget as SVGSVGElement).setPointerCapture(ev.pointerId);
+  };
+
+  private onPointerMove = (ev: PointerEvent): void => {
+    const start = this.panStart;
+    if (start === null || start.pointerId !== ev.pointerId) {
+      return;
+    }
+    const svgEl = ev.currentTarget as SVGSVGElement;
+    const rect = svgEl.getBoundingClientRect();
+    const scale = Math.min(rect.width / start.view.width, rect.height / start.view.height) || 1;
+    this.viewOverride = {
+      ...start.view,
+      x: start.view.x - (ev.clientX - start.x) / scale,
+      y: start.view.y - (ev.clientY - start.y) / scale,
+    };
+  };
+
+  private onPointerUp = (ev: PointerEvent): void => {
+    if (this.panStart?.pointerId === ev.pointerId) {
+      this.panStart = null;
+    }
+  };
+
+  private resetView = (): void => {
+    this.viewOverride = null;
+  };
 
   private onKey(ev: KeyboardEvent, action: () => void): void {
     if (ev.key === "Enter" || ev.key === " ") {
@@ -188,11 +414,102 @@ export class TopologyFloorMap extends LitElement {
       width: 100%;
       height: 100%;
     }
+    .wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+    }
     svg {
       width: 100%;
       height: 100%;
       background: var(--card-background-color, #fff);
       border-radius: 12px;
+      touch-action: none;
+      cursor: grab;
+    }
+    svg:active {
+      cursor: grabbing;
+    }
+    .overlay {
+      position: absolute;
+      right: 12px;
+      bottom: 8px;
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 4px;
+      pointer-events: none;
+    }
+    .overlay button {
+      pointer-events: auto;
+      padding: 4px 10px;
+      border: 1px solid var(--divider-color, #bdbdbd);
+      border-radius: 14px;
+      background: var(--card-background-color, #fff);
+      color: var(--primary-text-color, #212121);
+      cursor: pointer;
+      font-size: 0.8em;
+    }
+    .overlay p {
+      margin: 0;
+      font-size: 0.75em;
+      color: var(--secondary-text-color, #727272);
+    }
+    .legend {
+      position: absolute;
+      top: 8px;
+      left: 12px;
+      display: flex;
+      flex-wrap: wrap;
+      gap: 4px 16px;
+      pointer-events: none;
+      font-size: 0.72em;
+      color: var(--secondary-text-color, #727272);
+    }
+    .legend .group {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .legend .caption {
+      font-weight: 500;
+    }
+    .legend .item {
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .legend .swatch {
+      display: inline-block;
+      width: 14px;
+      height: 10px;
+      border: 2px solid var(--divider-color, #bdbdbd);
+      border-radius: 3px;
+      background: var(--card-background-color, #fff);
+    }
+    .legend .swatch.trust-private {
+      background: var(--topology-trust-private, rgba(3, 169, 244, 0.14));
+    }
+    .legend .swatch.trust-shared {
+      background: var(--topology-trust-shared, rgba(76, 175, 80, 0.14));
+    }
+    .legend .swatch.trust-public {
+      background: var(--topology-trust-public, rgba(255, 152, 0, 0.14));
+    }
+    .legend .swatch.env-outdoor {
+      border-style: dashed;
+    }
+    .legend .swatch.env-semi_outdoor {
+      border-style: dotted;
+    }
+    .band rect {
+      fill: var(--secondary-background-color, rgba(0, 0, 0, 0.04));
+      stroke: none;
+    }
+    .band-label {
+      fill: var(--secondary-text-color, #727272);
+      font-size: 15px;
+      dominant-baseline: auto;
     }
     .edge {
       stroke: var(--primary-text-color, #212121);
@@ -200,7 +517,8 @@ export class TopologyFloorMap extends LitElement {
       opacity: 0.8;
       cursor: pointer;
     }
-    .edge:focus {
+    .edge:focus,
+    .edge.selected {
       outline: none;
       stroke: var(--primary-color, #03a9f4);
       stroke-width: 5;
@@ -219,6 +537,10 @@ export class TopologyFloorMap extends LitElement {
     .edge.perimeter {
       stroke: var(--warning-color, #ff9800);
       stroke-width: 4;
+    }
+    .edge.flagged {
+      stroke: var(--error-color, #f44336);
+      stroke-width: 5;
     }
     .glyph {
       font-size: 18px;
@@ -264,7 +586,8 @@ export class TopologyFloorMap extends LitElement {
     .node:focus {
       outline: none;
     }
-    .node:focus .node-body {
+    .node:focus .node-body,
+    .node.selected .node-body {
       stroke: var(--primary-color, #03a9f4);
       stroke-width: 4;
     }
@@ -277,6 +600,15 @@ export class TopologyFloorMap extends LitElement {
     }
     .orphan-badge {
       fill: var(--error-color, #f44336);
+    }
+    .empty {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100%;
+      padding: 16px;
+      text-align: center;
+      color: var(--secondary-text-color, #727272);
     }
   `;
 }

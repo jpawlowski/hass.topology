@@ -3,10 +3,17 @@
  * `topology/set_floor_level`. An override is offered only where the registry
  * level is `None`; the row always shows the `effective_level` so the user sees
  * which value wins (registry level always dominates). Panel-only.
+ *
+ * Rows arrive already ordered top-down, so the list itself is the building's
+ * section. The numbers are shown for transparency about which value won, not as
+ * something to interpret: a level only says what sits above what, so `0` is a
+ * perfectly ordinary ground floor and `1` is equally fine where that is the local
+ * convention.
  */
 
-import { LitElement, html, css } from "lit";
+import { LitElement, html, css, nothing } from "lit";
 import { customElement, property } from "lit/decorators.js";
+import { live } from "lit/directives/live.js";
 import type { FloorOut } from "../api/types";
 import type { HomeAssistant } from "../ha";
 import type { TopologyWsClient } from "../api/ws-client";
@@ -41,6 +48,8 @@ export class TopologyFloorEditor extends LitElement {
     return html`
       <div class="editor">
         <h3>${localize("editor.floor.title")}</h3>
+        <p class="hint">${localize("editor.floor.hint")}</p>
+        ${this.floors.length === 0 ? html`<p class="hint">${localize("editor.floor.unset")}</p>` : nothing}
         ${this.floors.map(
           (floor) => html`
             <div class="row ${this.flagged.has(floor.floor_id) ? "flagged" : ""}">
@@ -51,13 +60,14 @@ export class TopologyFloorEditor extends LitElement {
                       ${localize("editor.floor.override")}
                       <input
                         type="number"
-                        .value=${floor.level_override === null ? "" : String(floor.level_override)}
-                        @change=${(ev: Event) =>
-                          this.setLevel(floor, (ev.target as HTMLInputElement).value)}
+                        .value=${live(floor.level_override === null ? "" : String(floor.level_override))}
+                        @change=${(ev: Event) => this.setLevel(floor, (ev.target as HTMLInputElement).value)}
                       />
                     </label>
                   `
-                : html`<span class="registry">${floor.registry_level}</span>`}
+                : html`<span class="registry">
+                    ${localize("editor.floor.from_registry")}: ${floor.registry_level}
+                  </span>`}
               <span class="effective">
                 ${localize("editor.floor.effective")}:
                 ${floor.effective_level === null ? "—" : floor.effective_level}
@@ -79,6 +89,12 @@ export class TopologyFloorEditor extends LitElement {
     }
     h3 {
       margin: 0;
+    }
+    .hint {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
     }
     .row {
       display: flex;

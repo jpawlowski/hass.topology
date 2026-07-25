@@ -8,10 +8,11 @@
 
 import { LitElement, html, css } from "lit";
 import { customElement, property, state } from "lit/decorators.js";
+import { live } from "lit/directives/live.js";
 import type { HomeConfigOut, OccupancyExtent } from "../api/types";
 import type { TopologyWsClient } from "../api/ws-client";
 import { TopologyError } from "../api/ws-client";
-import { localize } from "../i18n/localize";
+import { enumLabel, localize } from "../i18n/localize";
 import { toast } from "./toast";
 
 const OCCUPANCY: OccupancyExtent[] = ["whole_property", "unit_within_building"];
@@ -60,30 +61,40 @@ export class TopologyHomeConfigEditor extends LitElement {
         <label>
           ${localize("editor.home.occupancy")}
           <select
-            .value=${this.occupancy}
+            .value=${live(this.occupancy)}
             @change=${(ev: Event) => {
               this.occupancy = (ev.target as HTMLSelectElement).value as OccupancyExtent;
             }}
           >
-            ${OCCUPANCY.map((value) => html`<option value=${value}>${value}</option>`)}
+            ${OCCUPANCY.map(
+              (value) => html`
+                <option value=${value} .selected=${this.occupancy === value}>
+                  ${enumLabel("occupancy", value)}
+                </option>
+              `,
+            )}
           </select>
         </label>
+        <p class="hint">${localize("editor.home.occupancy.hint")}</p>
         <label>
           ${localize("editor.home.threshold")}
           <input
             type="number"
             min="1"
             max="100"
-            .value=${String(this.threshold)}
+            .value=${live(String(this.threshold))}
             @change=${(ev: Event) => {
               this.threshold = Number.parseInt((ev.target as HTMLInputElement).value, 10) || 1;
             }}
           />
         </label>
+        <p class="hint">${localize("editor.home.threshold.hint")}</p>
+        <h4>${localize("editor.home.projection")}</h4>
+        <p class="hint">${localize("editor.home.projection.hint")}</p>
         <label class="checkbox">
           <input
             type="checkbox"
-            .checked=${this.projectEnvironment}
+            .checked=${live(this.projectEnvironment)}
             @change=${(ev: Event) => {
               this.projectEnvironment = (ev.target as HTMLInputElement).checked;
             }}
@@ -93,7 +104,7 @@ export class TopologyHomeConfigEditor extends LitElement {
         <label class="checkbox">
           <input
             type="checkbox"
-            .checked=${this.projectType}
+            .checked=${live(this.projectType)}
             @change=${(ev: Event) => {
               this.projectType = (ev.target as HTMLInputElement).checked;
             }}
@@ -103,7 +114,7 @@ export class TopologyHomeConfigEditor extends LitElement {
         <label class="checkbox">
           <input
             type="checkbox"
-            .checked=${this.projectTrust}
+            .checked=${live(this.projectTrust)}
             @change=${(ev: Event) => {
               this.projectTrust = (ev.target as HTMLInputElement).checked;
             }}
@@ -127,6 +138,15 @@ export class TopologyHomeConfigEditor extends LitElement {
     }
     h3 {
       margin: 0;
+    }
+    h4 {
+      margin: 8px 0 0;
+    }
+    .hint {
+      margin: 0;
+      color: var(--secondary-text-color, #727272);
+      font-size: 0.8em;
+      line-height: 1.4;
     }
     label {
       display: flex;

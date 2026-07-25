@@ -1,9 +1,17 @@
 /**
  * `<topology-panel>` — the admin sidebar panel element (Phase 7 §2). HA sets
  * `hass` / `narrow` / `route` / `panel` on this element (A.5); it constructs the
- * frozen-v1 WS client + the client store, renders the per-floor 2D map beside a
- * contextual editor, resolves the `?focus=` deep-link (§2.2/§3), and re-seeds on
- * reconnect. Native look & feel via HA theme variables (§2.8).
+ * frozen-v1 WS client + the client store, renders the 2D map beside a contextual
+ * editor, resolves the `?focus=` deep-link (§2.2/§3), and re-seeds on reconnect.
+ * Native look & feel via HA theme variables (§2.8).
+ *
+ * Selection is held as an **id**, not as the object that was clicked: a write
+ * re-seeds a whole new snapshot, and a captured object would keep the sidebar
+ * showing pre-save values until the user clicked the room again.
+ *
+ * Every view is reachable in both directions — the deep-link scopes open a view,
+ * and the header nav plus the editors' close buttons lead back out. A panel you
+ * can only navigate *into* needs a page reload to escape.
  *
  * This is the panel root — the one place route/panel props and the editor +
  * write layer come together (§4.2, D15): the read-only map, the WS client, the
@@ -16,7 +24,7 @@ import type { AreaOut, EdgeOut, HealthResult, ListAnnotationsResult } from "./ap
 import type { HomeAssistant, PanelInfo, Route } from "./ha";
 import { TopologyWsClient } from "./api/ws-client";
 import { TopologyStore } from "./state/store";
-import { parseRoute, type FocusScope, type PanelView } from "./router";
+import { parseRoute, routeQuery, type FocusScope, type PanelView } from "./router";
 import { localize } from "./i18n/localize";
 import { OUTDOOR_BUCKET } from "./map/floor-map";
 
@@ -25,10 +33,14 @@ import "./editors/area-editor";
 import "./editors/edge-editor";
 import "./editors/beyond-editor";
 import "./editors/exterior-editor";
+import "./editors/neighbors-editor";
 import "./editors/floor-editor";
 import "./editors/first-run";
 import "./editors/home-config-editor";
 import "./editors/orphans-view";
+
+/** Sentinel for the "show every floor at once" chip. */
+const ALL_FLOORS = "__all__";
 
 @customElement("topology-panel")
 export class TopologyPanel extends LitElement {
@@ -41,8 +53,8 @@ export class TopologyPanel extends LitElement {
   @state() private view: PanelView = "map";
   @state() private focusScope: FocusScope | null = null;
   @state() private activeFloor: string | null = null;
-  @state() private selectedArea: AreaOut | null = null;
-  @state() private selectedEdge: EdgeOut | null = null;
+  @state() private selectedAreaId: string | null = null;
+  @state() private selectedEdgeId: string | null = null;
   @state() private toastMessage: string | null = null;
 
   private client: TopologyWsClient | null = null;
@@ -61,6 +73,8 @@ export class TopologyPanel extends LitElement {
     this.addEventListener("topology-toast", this.onToast as EventListener);
     this.addEventListener("area-selected", this.onAreaSelected as EventListener);
     this.addEventListener("edge-selected", this.onEdgeSelected as EventListener);
+    this.addEventListener("selection-cleared", this.clearSelection);
+    this.addEventListener("keydown", this.onKeyDown);
   }
 
   public override disconnectedCallback(): void {
@@ -70,6 +84,8 @@ export class TopologyPanel extends LitElement {
     this.removeEventListener("topology-toast", this.onToast as EventListener);
     this.removeEventListener("area-selected", this.onAreaSelected as EventListener);
     this.removeEventListener("edge-selected", this.onEdgeSelected as EventListener);
+    this.removeEventListener("selection-cleared", this.clearSelection);
+    this.removeEventListener("keydown", this.onKeyDown);
   }
 
   protected override willUpdate(changed: Map<string, unknown>): void {
@@ -87,14 +103,48 @@ export class TopologyPanel extends LitElement {
   };
 
   private onAreaSelected = (ev: CustomEvent<{ area: AreaOut }>): void => {
-    this.selectedArea = ev.detail.area;
-    this.selectedEdge = null;
+    this.selectedAreaId = ev.detail.area.area_id;
+    this.selectedEdgeId = null;
   };
 
   private onEdgeSelected = (ev: CustomEvent<{ edge: EdgeOut }>): void => {
-    this.selectedEdge = ev.detail.edge;
-    this.selectedArea = null;
+    this.selectedEdgeId = ev.detail.edge.edge_id;
+    this.selectedAreaId = null;
   };
+
+  private clearSelection = (): void => {
+    this.selectedAreaId = null;
+    this.selectedEdgeId = null;
+  };
+
+  private onKeyDown = (ev: KeyboardEvent): void => {
+    if (ev.key === "Escape" && (this.selectedAreaId !== null || this.selectedEdgeId !== null)) {
+      this.clearSelection();
+    }
+  };
+
+  /** Leave any sub-view and any selection — the one way back to the default. */
+  private goHome = (): void => {
+    this.view = "map";
+    this.focusScope = null;
+    this.clearSelection();
+    this.syncUrl();
+  };
+
+  /**
+   * Mirror the current scope into the address bar.
+   *
+   * Without this the URL kept whatever `?focus=` the panel was opened with, so
+   * a reload or a copied link reopened a view the user had already left, and the
+   * browser's back button did nothing at all inside the panel.
+   */
+  private syncUrl(): void {
+    const query = routeQuery(this.focusScope);
+    const next = `${window.location.pathname}${query}`;
+    if (next !== `${window.location.pathname}${window.location.search}`) {
+      window.history.replaceState(window.history.state, "", next);
+    }
+  }
 
   private get snapshot(): ListAnnotationsResult | null {
     return this.store?.state.snapshot ?? null;
@@ -104,13 +154,34 @@ export class TopologyPanel extends LitElement {
     return this.store?.state.health ?? null;
   }
 
-  /** Floor ids present in the snapshot plus the outdoor/unfloored bucket. */
+  /** The selected area, re-resolved against the live snapshot (never captured). */
+  private get selectedArea(): AreaOut | null {
+    if (this.selectedAreaId === null) {
+      return null;
+    }
+    return this.snapshot?.areas.find((area) => area.area_id === this.selectedAreaId) ?? null;
+  }
+
+  private get selectedEdge(): EdgeOut | null {
+    if (this.selectedEdgeId === null) {
+      return null;
+    }
+    return this.snapshot?.edges.find((edge) => edge.edge_id === this.selectedEdgeId) ?? null;
+  }
+
+  /**
+   * Floor chips: "All floors", every floor in the snapshot's own order (already
+   * top-down by effective level), then the outdoor/unfloored bucket.
+   */
   private floorButtons(): { id: string; label: string }[] {
     const snapshot = this.snapshot;
-    const buttons = (snapshot?.floors ?? []).map((floor) => ({
-      id: floor.floor_id,
-      label: this.hass.floors?.[floor.floor_id]?.name ?? floor.floor_id,
-    }));
+    const buttons = [{ id: ALL_FLOORS, label: localize("panel.floor.all") }];
+    for (const floor of snapshot?.floors ?? []) {
+      buttons.push({
+        id: floor.floor_id,
+        label: this.hass.floors?.[floor.floor_id]?.name ?? floor.floor_id,
+      });
+    }
     buttons.push({ id: OUTDOOR_BUCKET, label: localize("panel.floor.outdoor") });
     return buttons;
   }
@@ -122,35 +193,66 @@ export class TopologyPanel extends LitElement {
         ${state && !state.connected
           ? html`<div class="banner reconnecting">${localize("banner.reconnecting")}</div>`
           : nothing}
-        ${state?.error
-          ? html`<div class="banner error">${localize("banner.error")}</div>`
-          : nothing}
+        ${state?.error ? html`<div class="banner error">${localize("banner.error")}</div>` : nothing}
         <header>
           <h1>${localize("panel.title")}</h1>
-          <nav class="floors">
-            ${this.floorButtons().map(
-              (floor) => html`
-                <button
-                  class=${this.activeFloor === floor.id ? "active" : ""}
-                  @click=${() => {
-                    this.activeFloor = floor.id;
-                  }}
-                >
-                  ${floor.label}
-                </button>
-              `,
-            )}
+          <nav class="views">
+            <button
+              class=${this.isHome() ? "active" : ""}
+              @click=${this.goHome}
+              title=${localize("panel.nav.back")}
+            >
+              ${localize("panel.nav.home")}
+            </button>
+            <button
+              class=${this.view === "floors" ? "active" : ""}
+              @click=${() => this.openView("floors")}
+            >
+              ${localize("panel.nav.floors")}
+            </button>
+            <button
+              class=${this.view === "orphans" ? "active" : ""}
+              @click=${() => this.openView("orphans")}
+            >
+              ${localize("panel.nav.orphans")}
+            </button>
           </nav>
         </header>
+        <nav class="floors">
+          ${this.floorButtons().map(
+            (floor) => html`
+              <button
+                class=${(this.activeFloor ?? ALL_FLOORS) === floor.id ? "active" : ""}
+                @click=${() => {
+                  this.activeFloor = floor.id === ALL_FLOORS ? null : floor.id;
+                }}
+              >
+                ${floor.label}
+              </button>
+            `,
+          )}
+        </nav>
         <div class="body">
           <div class="map">${this.renderMap()}</div>
           <aside class="side">${this.renderSide()}</aside>
         </div>
-        ${this.toastMessage
-          ? html`<div class="toast" role="alert">${this.toastMessage}</div>`
-          : nothing}
+        ${this.toastMessage ? html`<div class="toast" role="alert">${this.toastMessage}</div>` : nothing}
       </div>
     `;
+  }
+
+  /** True when the sidebar shows the home-configuration default. */
+  private isHome(): boolean {
+    return this.view === "map" && this.selectedAreaId === null && this.selectedEdgeId === null;
+  }
+
+  private openView(view: PanelView): void {
+    this.view = view;
+    // Keep the scope and the view in step: the floors and orphans views each own
+    // a scope, so a deep-link out of the panel reproduces what is on screen.
+    this.focusScope = view === "floors" ? "floors" : view === "orphans" ? "orphans" : null;
+    this.clearSelection();
+    this.syncUrl();
   }
 
   private renderMap() {
@@ -167,6 +269,8 @@ export class TopologyPanel extends LitElement {
         .health=${this.health}
         .activeFloor=${this.activeFloor}
         .focusScope=${this.focusScope}
+        .selectedAreaId=${this.selectedAreaId}
+        .selectedEdgeId=${this.selectedEdgeId}
       ></topology-floor-map>
     `;
   }
@@ -176,36 +280,57 @@ export class TopologyPanel extends LitElement {
     if (snapshot === null || this.client === null) {
       return nothing;
     }
-    if (this.selectedEdge !== null) {
+    const edge = this.selectedEdge;
+    if (edge !== null) {
       return html`
+        ${this.renderCloseBar(this.edgeTitle(edge))}
         <topology-edge-editor
           .client=${this.client}
-          .edge=${this.selectedEdge}
+          .hass=${this.hass}
+          .edge=${edge}
           .presets=${snapshot.presets}
         ></topology-edge-editor>
       `;
     }
-    if (this.selectedArea !== null) {
-      const flagged =
-        this.focusScope === "exterior" &&
-        (this.health?.exterior_on_non_outdoor_side ?? []).includes(this.selectedArea.area_id);
+    const area = this.selectedArea;
+    if (area !== null) {
+      const flagged = (this.health?.exterior_on_non_outdoor_side ?? []).includes(area.area_id);
       return html`
-        <topology-area-editor .client=${this.client} .area=${this.selectedArea}></topology-area-editor>
+        ${this.renderCloseBar(this.hass.areas?.[area.area_id]?.name ?? area.area_id)}
+        <topology-area-editor
+          .client=${this.client}
+          .area=${area}
+          .areaTypes=${snapshot.area_types}
+        ></topology-area-editor>
+        <topology-neighbors-editor
+          .client=${this.client}
+          .hass=${this.hass}
+          .area=${area}
+          .areas=${snapshot.areas}
+          .edges=${snapshot.edges}
+          .floors=${snapshot.floors}
+          .presets=${snapshot.presets}
+        ></topology-neighbors-editor>
         <topology-beyond-editor
           .client=${this.client}
-          .area=${this.selectedArea}
+          .hass=${this.hass}
+          .area=${area}
+          .edges=${snapshot.edges}
+          .occupancyExtent=${snapshot.home_config.occupancy_extent}
         ></topology-beyond-editor>
         <topology-exterior-editor
           .client=${this.client}
-          .area=${this.selectedArea}
+          .hass=${this.hass}
+          .area=${area}
           .presets=${snapshot.presets}
           .flagged=${flagged}
         ></topology-exterior-editor>
       `;
     }
-    // No selection: the focus/view drives the default side content.
+    // No selection: the view drives the default side content.
     if (this.view === "floors") {
       return html`
+        ${this.renderCloseBar(localize("panel.nav.floors"))}
         <topology-floor-editor
           .client=${this.client}
           .hass=${this.hass}
@@ -216,6 +341,7 @@ export class TopologyPanel extends LitElement {
     }
     if (this.view === "orphans") {
       return html`
+        ${this.renderCloseBar(localize("panel.nav.orphans"))}
         <topology-orphans-view
           .client=${this.client}
           .hass=${this.hass}
@@ -239,10 +365,30 @@ export class TopologyPanel extends LitElement {
     `;
   }
 
+  /** Header of a drilled-in sidebar, with the way back out. */
+  private renderCloseBar(title: string) {
+    return html`
+      <div class="close-bar">
+        <span class="crumb">${title}</span>
+        <button @click=${this.goHome} title=${localize("panel.nav.back")}>
+          ${localize("action.close")}
+        </button>
+      </div>
+    `;
+  }
+
+  private edgeTitle(edge: EdgeOut): string {
+    const name = (areaId: string): string => this.hass.areas?.[areaId]?.name ?? areaId;
+    return localize("editor.edge.between", { a: name(edge.area_a), b: name(edge.area_b) });
+  }
+
   /** Render the focus-scoped flagged list beside the map (§2.5 overlay). */
   private renderFlagged() {
     if (this.focusScope === null || this.health === null) {
       return nothing;
+    }
+    if (this.focusScope === "geometry") {
+      return this.renderFlaggedEdges();
     }
     const key =
       this.focusScope === "unannotated"
@@ -251,7 +397,9 @@ export class TopologyPanel extends LitElement {
           ? "isolated_areas"
           : this.focusScope === "bearings"
             ? "contradictory_bearings"
-            : null;
+            : this.focusScope === "exterior"
+              ? "exterior_on_non_outdoor_side"
+              : null;
     if (key === null) {
       return nothing;
     }
@@ -261,15 +409,75 @@ export class TopologyPanel extends LitElement {
         ? localize("sidebar.unannotated")
         : this.focusScope === "isolated"
           ? localize("sidebar.isolated")
-          : localize("sidebar.bearings");
+          : this.focusScope === "bearings"
+            ? localize("sidebar.bearings")
+            : localize("editor.exterior.title");
     return html`
       <div class="flagged-list">
         <h3>${title}</h3>
         ${ids.length === 0
           ? html`<p>${localize("sidebar.none")}</p>`
           : html`<ul>
-              ${ids.map((id) => html`<li>${this.hass.areas?.[id]?.name ?? id}</li>`)}
+              ${ids.map(
+                (id) => html`<li>
+                  <button
+                    class="link"
+                    @click=${() => {
+                      this.selectedAreaId = id;
+                      this.selectedEdgeId = null;
+                    }}
+                  >
+                    ${this.hass.areas?.[id]?.name ?? id}
+                  </button>
+                </li>`,
+              )}
             </ul>`}
+      </div>
+    `;
+  }
+
+  /**
+   * The geometry scope lists flagged *edges*, so it needs its own renderer: the
+   * area list resolves ids through `hass.areas`, which would show an edge id raw.
+   */
+  private renderFlaggedEdges() {
+    const health = this.health;
+    const snapshot = this.snapshot;
+    if (health === null || snapshot === null) {
+      return nothing;
+    }
+    const groups = [
+      { title: localize("sidebar.spanning"), ids: health.edges_spanning_multiple_floors ?? [] },
+      {
+        title: localize("sidebar.no_climb"),
+        ids: health.vertical_edges_without_vertical_passage ?? [],
+      },
+    ];
+    return html`
+      <div class="flagged-list">
+        ${groups.map(
+          (group) => html`
+            <h3>${group.title}</h3>
+            ${group.ids.length === 0
+              ? html`<p>${localize("sidebar.none")}</p>`
+              : html`<ul>
+                  ${group.ids.map((edgeId) => {
+                    const edge = snapshot.edges.find((row) => row.edge_id === edgeId);
+                    return html`<li>
+                      <button
+                        class="link"
+                        @click=${() => {
+                          this.selectedEdgeId = edgeId;
+                          this.selectedAreaId = null;
+                        }}
+                      >
+                        ${edge !== undefined ? this.edgeTitle(edge) : edgeId}
+                      </button>
+                    </li>`;
+                  })}
+                </ul>`}
+          `,
+        )}
       </div>
     `;
   }
@@ -299,12 +507,12 @@ export class TopologyPanel extends LitElement {
       margin: 0;
       font-size: 1.2em;
     }
-    nav.floors {
+    nav.views {
       display: flex;
       gap: 8px;
       flex-wrap: wrap;
     }
-    nav.floors button {
+    nav.views button {
       padding: 6px 12px;
       border: none;
       border-radius: 16px;
@@ -312,9 +520,31 @@ export class TopologyPanel extends LitElement {
       color: inherit;
       cursor: pointer;
     }
-    nav.floors button.active {
+    nav.views button.active {
       background: rgba(255, 255, 255, 0.9);
       color: var(--primary-color, #03a9f4);
+    }
+    nav.floors {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      padding: 8px 16px;
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      background: var(--card-background-color, #fff);
+    }
+    nav.floors button {
+      padding: 4px 12px;
+      border: 1px solid var(--divider-color, #bdbdbd);
+      border-radius: 16px;
+      background: transparent;
+      color: var(--primary-text-color, #212121);
+      cursor: pointer;
+      font-size: 0.9em;
+    }
+    nav.floors button.active {
+      background: var(--primary-color, #03a9f4);
+      border-color: var(--primary-color, #03a9f4);
+      color: var(--text-primary-color, #fff);
     }
     .body {
       display: flex;
@@ -332,6 +562,29 @@ export class TopologyPanel extends LitElement {
       overflow-y: auto;
       border-left: 1px solid var(--divider-color, #e0e0e0);
       background: var(--card-background-color, #fff);
+    }
+    .close-bar {
+      position: sticky;
+      top: 0;
+      z-index: 1;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--divider-color, #e0e0e0);
+      background: var(--card-background-color, #fff);
+    }
+    .close-bar .crumb {
+      font-weight: 500;
+    }
+    .close-bar button {
+      padding: 4px 12px;
+      border: 1px solid var(--divider-color, #bdbdbd);
+      border-radius: 6px;
+      background: transparent;
+      color: var(--primary-text-color, #212121);
+      cursor: pointer;
     }
     .banner {
       padding: 8px 16px;
@@ -357,6 +610,19 @@ export class TopologyPanel extends LitElement {
     }
     .flagged-list h3 {
       margin: 0 0 8px;
+    }
+    .flagged-list ul {
+      margin: 0;
+      padding-left: 18px;
+    }
+    button.link {
+      padding: 0;
+      border: none;
+      background: none;
+      color: var(--primary-color, #03a9f4);
+      cursor: pointer;
+      font: inherit;
+      text-align: left;
     }
     .toast {
       position: fixed;
