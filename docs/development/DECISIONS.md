@@ -380,9 +380,20 @@ never actually wanted.
 - Every phase's DoD includes a Platinum-rule delta review; regressions are
   caught immediately.
 - Test-coverage target ≥ 95 % from Phase 3 onward (Silver rule, precondition
-  for Platinum).
+  for Platinum), **enforced** — see the amendment below.
 - Architecture design is Core-review-ready: no HACS-specific tricks, no
   reliance on features only available to custom integrations.
+
+**Amendment 2026-07-25 — the coverage target is the coverage gate.** For a
+while the CI gate sat at 93 % against a 95 % target, on the reasoning that a
+gate at the target turns one unlucky uncovered line into a red build. That
+reasoning was sound but it left the stated commitment unenforced, and an
+unenforced target drifts by definition. The gate is now **`fail_under = 95`
+in `pyproject.toml`** — one number, so a local `script/test --cov` and CI agree
+— and the slack comes from headroom instead: measured **98 %** over
+`custom_components/topology`, so a change has three points to give before the
+build breaks. The gate may be raised as coverage rises; it is never lowered to
+make a change pass.
 
 ---
 

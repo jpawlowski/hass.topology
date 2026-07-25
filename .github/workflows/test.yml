@@ -60,11 +60,10 @@ jobs:
       - name: Install requirements
         run: script/setup/bootstrap
 
-      # The threshold lives in pyproject.toml (`fail_under = 93`) rather than on
+      # The threshold lives in pyproject.toml (`fail_under = 95`) rather than on
       # this command line, so a local `script/test --cov` gates identically to
-      # CI. It sits just below the >= 95 % target of ADR "Quality Target"
-      # (measured 95.1 %) on purpose: at exactly the target a single uncovered
-      # line turns CI red, which produces tests written for the number.
+      # CI. It is exactly the >= 95 % of ADR "Quality Target"; measured 98 %, so
+      # a change has three points of slack before the build turns red.
       - name: Run tests with the coverage gate
         run: script/test --cov
 

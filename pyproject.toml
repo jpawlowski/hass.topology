@@ -77,12 +77,13 @@ source = ["custom_components/topology"]
 omit = ["tests/*"]
 
 [tool.coverage.report]
-# The master plan targets >= 95 % from Phase 3 onward and the suite meets it
-# today. The gate sits a little below so a single uncovered line does not turn CI
-# red — that pressure produces tests written for the number rather than for the
-# behaviour. Raise it as coverage rises; it must never be lowered to make a
-# change pass.
-fail_under = 93
+# ADR "Quality Target" commits to >= 95 %, and the gate now enforces exactly
+# that rather than sitting two points below it — a target nothing checks is a
+# wish. Measured 98 % (Phase 8), so there is real headroom: a change has to drop
+# three points before CI turns red, which is enough slack that nobody writes a
+# test for the number instead of for the behaviour. It must never be lowered to
+# make a change pass.
+fail_under = 95
 exclude_lines = [
     "pragma: no cover",
     "def __repr__",
