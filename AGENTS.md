@@ -27,6 +27,12 @@ This is a Home Assistant custom integration that was generated from a blueprint 
 
 **CLI compatibility notes:** Some commands are available via compatibility aliases because Debian package names differ from what agents often expect. Prefer `bat`, `fd`, `git-delta`, `httpie`, `ipython`, `miller`, and `ripgrep` as stable spellings. `yq` is installed as the Mike Farah variant, so standard `yq eval`/`yq e` syntax is expected.
 
+**Claude Code cloud sandboxes:** `.claude/hooks/session-start.sh` automatically brings a Claude Code on the web / cloud sandbox session as close to the devcontainer as practical (apt package parity, then `script/setup/setup`) before the first turn starts. It only runs when `CLAUDE_CODE_REMOTE=true` — local usage (CLI, VS Code extension, devcontainer) is unaffected. Don't re-solve environment setup ad hoc in a cloud session; if something is still missing, fix the hook instead.
+
+The hook re-runs on every resume, not just fresh sessions, so it fingerprints the files that would change its outcome (`pyproject.toml`, `hacs.json`, `.devcontainer/.env*`, `requirements*.txt`, `package*.json`, itself) and skips straight past apt/uv/bootstrap when nothing changed and the venv is still intact — see the marker check near the top of the script. If you're debugging "the hook didn't pick up my change," check whether the changed file is in that fingerprint list.
+
+For a cloud environment's **Setup script** field (configured in the Claude Code web UI, not in this repo — see [docs](https://code.claude.com/docs/en/claude-code-on-the-web#setup-scripts)), point it at the same hook so its filesystem cache and the hook's own marker agree: `CLAUDE_CODE_REMOTE=true bash .claude/hooks/session-start.sh`. This is optional — the hook alone is sufficient — but it moves the first, slowest run out of session startup and into the cached environment build.
+
 **Start Home Assistant:**
 
 ```bash
