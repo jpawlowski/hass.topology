@@ -111,6 +111,31 @@ async def test_ws_path_traversable_only(
     assert strict["result"]["path"] is None
 
 
+async def test_ws_path_multi_hop(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    store_payload_full: dict[str, Any],
+    load_payload: Callable[[MockConfigEntry, dict[str, Any]], None],
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """A destination reachable only through an intermediate area walks the BFS past its first hop."""
+    load_payload(setup_integration, store_payload_full)
+    garten = area_registry.async_create("garten")
+    store = setup_integration.runtime_data.store
+    snapshot, edge_id = await store.async_upsert_edge("kueche", garten.id, [{"passage": "none", "barrier": "solid"}])
+    setup_integration.runtime_data.coordinator.async_publish(snapshot, "edge", [edge_id])
+    await hass.async_block_till_done()
+    client = await hass_ws_client(hass)
+
+    # From wohnzimmer, the BFS re-encounters the already-visited third triangle
+    # member (flur/kueche see each other before either is expanded) before it
+    # reaches garten — walking the "already visited" skip as well as the enqueue.
+    response = await _query(client, {"type": "topology/path", "from": "wohnzimmer", "to": garten.id})
+    assert response["result"]["path"] == ["wohnzimmer", "kueche", garten.id]
+    assert response["result"]["hops"] == 2
+
+
 async def test_ws_connections_facing_outdoor(
     hass: HomeAssistant,
     setup_integration: MockConfigEntry,
@@ -157,6 +182,37 @@ async def test_ws_connections_facing_outdoor_edge(
     assert edge_entries[0]["area_id"] == "flur"  # the room, not the outdoor area
     assert edge_entries[0]["barrier"] == "door"
     assert edge_entries[0]["passage"] == "level"
+
+
+async def test_ws_connections_facing_outdoor_excludes_orphans(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    area_registry: ar.AreaRegistry,
+    store_payload_full: dict[str, Any],
+    load_payload: Callable[[MockConfigEntry, dict[str, Any]], None],
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """Orphaned area annotations and orphaned edges both drop out (§4.3, D15)."""
+    load_payload(setup_integration, store_payload_full)
+    aussen = area_registry.async_create("Aussen")
+    store = setup_integration.runtime_data.store
+    await store.async_update_area(aussen.id, {"environment": "outdoor"})
+    await store.async_upsert_edge("flur", aussen.id, [{"passage": "level", "barrier": "door", "glazed": True}])
+    setup_integration.runtime_data.coordinator.async_publish(store.snapshot(), "edge", ["updated"])
+    await hass.async_block_till_done()
+
+    # kueche has an exterior window facing outdoor (beyond=outdoor); aussen::flur
+    # is an interior edge with exactly one outdoor endpoint. Orphaning both
+    # exercises the annotation- and edge-orphan skips.
+    area_registry.async_delete("kueche")
+    area_registry.async_delete(aussen.id)
+    await hass.async_block_till_done()
+
+    client = await hass_ws_client(hass)
+    response = await _query(client, {"type": "topology/connections_facing_outdoor"})
+    areas = {c["area_id"] for c in response["result"]["connections"]}
+    assert "kueche" not in areas
+    assert not any(c["source"] == "edge" for c in response["result"]["connections"])
 
 
 async def test_ws_query_not_loaded(

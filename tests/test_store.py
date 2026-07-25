@@ -149,7 +149,11 @@ async def test_store_save_debounced(hass: HomeAssistant, setup_integration: Mock
     store = setup_integration.runtime_data.store
     backend = store._store  # noqa: SLF001
 
-    with patch.object(backend, "_async_handle_write_data", AsyncMock()) as write:
+    # Patch _async_write_data (not _async_handle_write_data): the latter also
+    # owns the delay-timer cleanup, so replacing it wholesale leaves the
+    # pending Store._async_schedule_callback_delayed_write timer uncancelled
+    # and fails the test suite's lingering-timer check.
+    with patch.object(backend, "_async_write_data", AsyncMock()) as write:
         await store.async_update_area("a", {"type": "kitchen"})
         await store.async_update_area("b", {"type": "living"})
         assert write.call_count == 0  # both mutations only scheduled a delayed write
