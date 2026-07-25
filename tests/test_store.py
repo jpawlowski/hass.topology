@@ -159,6 +159,11 @@ async def test_store_save_debounced(hass: HomeAssistant, setup_integration: Mock
 
     assert write.call_count == 1
 
+    # The final-write flush does not disarm the delayed-write timer, and a timer
+    # surviving the test fails the harness cleanup check. ``Store.async_save``
+    # cancels the delay listener, so a real save settles it.
+    await store.async_save_now()
+
 
 async def test_store_timestamps_utc_iso(setup_integration: MockConfigEntry, freezer: Any) -> None:
     """Timestamps are written as aware UTC ISO 8601 strings."""
