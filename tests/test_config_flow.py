@@ -1,15 +1,27 @@
-"""Config-flow, reconfigure, and setup/unload tests (PLAN-topology-phase2.md §7)."""
+"""Config-flow, reconfigure, and setup/unload tests.
+
+The flow is confirm-only (PLAN-topology-phase2-followup-configflow.md §2/§6);
+the check/abort rows are the unchanged Phase-2 §7 rows.
+"""
 
 from __future__ import annotations
 
+from copy import deepcopy
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from custom_components.topology.const import DOMAIN, STORAGE_KEY, STORAGE_VERSION
+from custom_components.topology.const import (
+    CONFIG_ENTRY_MINOR_VERSION,
+    CONFIG_ENTRY_VERSION,
+    DEFAULT_UNANNOTATED_REPAIR_THRESHOLD,
+    DOMAIN,
+    STORAGE_KEY,
+    STORAGE_VERSION,
+)
 from custom_components.topology.data import TopologyRuntimeData
-from custom_components.topology.store import TopologyStoreError
+from custom_components.topology.store import TopologyStoreError, default_store_data
 from homeassistant import config_entries
 from homeassistant.config_entries import ConfigEntryState
 from homeassistant.data_entry_flow import FlowResultType
@@ -29,40 +41,36 @@ def _storage_path(hass: HomeAssistant) -> Path:
 # --- user step -------------------------------------------------------------
 
 
-async def test_flow_user_success(hass: HomeAssistant) -> None:
-    """Defaults are accepted and create the singleton entry."""
+async def test_flow_user_form_has_no_fields(hass: HomeAssistant) -> None:
+    """The user form offers no fields — none of the seven Phase-2 keys."""
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     assert result["type"] is FlowResultType.FORM
+    assert result["step_id"] == "user"
+    assert list(result["data_schema"].schema) == []
+
+
+async def test_flow_user_creates_empty_entry(hass: HomeAssistant) -> None:
+    """Submitting the confirm step creates the entry with empty data."""
+    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.CREATE_ENTRY
     entry = result["result"]
+    assert entry.data == {}
     assert entry.unique_id == "topology"
-    assert entry.data["occupancy_extent"] == "whole_property"
-    assert entry.data["unannotated_repair_threshold"] == 3
+    assert entry.version == CONFIG_ENTRY_VERSION
+    assert entry.minor_version == CONFIG_ENTRY_MINOR_VERSION
 
 
-async def test_flow_user_full_input(hass: HomeAssistant) -> None:
-    """All fields, including the import flags, land in entry.data."""
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"],
-        {
-            "occupancy_extent": "unit_within_building",
-            "import_aliases": True,
-            "import_labels": True,
-            "project_environment": True,
-            "project_type": True,
-            "project_trust": True,
-            "unannotated_repair_threshold": 7,
-        },
-    )
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    data = result["result"].data
-    assert data["occupancy_extent"] == "unit_within_building"
-    assert data["import_aliases"] is True
-    assert data["import_labels"] is True
-    assert data["project_environment"] is True
-    assert data["unannotated_repair_threshold"] == 7
+async def test_flow_defaults_come_from_store(hass: HomeAssistant, mock_config_entry: MockConfigEntry) -> None:
+    """A fresh entry's home config is the store defaults, not flow input."""
+    mock_config_entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(mock_config_entry.entry_id)
+    await hass.async_block_till_done()
+    home = mock_config_entry.runtime_data.store.data["home_config"]
+    assert home == default_store_data()["home_config"]
+    assert home["occupancy_extent"] == "whole_property"
+    assert home["projection_toggles"] == {"environment": False, "type": False, "trust": False}
+    assert home["unannotated_repair_threshold"] == DEFAULT_UNANNOTATED_REPAIR_THRESHOLD
 
 
 async def test_flow_single_instance_abort(hass: HomeAssistant, mock_config_entry: MockConfigEntry) -> None:
@@ -111,41 +119,62 @@ async def test_flow_area_registry_error(hass: HomeAssistant) -> None:
     assert result["errors"] == {"base": "area_registry_unavailable"}
 
 
-async def test_flow_threshold_default_and_custom(hass: HomeAssistant) -> None:
-    """Threshold defaults to 3 and a custom value reaches entry.data + store."""
-    result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
-    result = await hass.config_entries.flow.async_configure(result["flow_id"], {"unannotated_repair_threshold": 10})
-    assert result["type"] is FlowResultType.CREATE_ENTRY
-    entry = result["result"]
-    assert entry.data["unannotated_repair_threshold"] == 10
-    await hass.async_block_till_done()
-    assert entry.runtime_data.store.data["home_config"]["unannotated_repair_threshold"] == 10
-
-
 # --- reconfigure step ------------------------------------------------------
 
 
-async def test_reconfigure_prefilled(hass: HomeAssistant, setup_integration: MockConfigEntry) -> None:
-    """The reconfigure form is pre-filled and omits the import flags."""
+async def test_reconfigure_form_has_no_fields(hass: HomeAssistant, setup_integration: MockConfigEntry) -> None:
+    """The reconfigure form is field-less and prefills nothing."""
     result = await setup_integration.start_reconfigure_flow(hass)
     assert result["type"] is FlowResultType.FORM
     assert result["step_id"] == "reconfigure"
-    schema_keys = {str(key.schema) for key in result["data_schema"].schema}
-    assert "import_aliases" not in schema_keys
-    assert "occupancy_extent" in schema_keys
+    assert list(result["data_schema"].schema) == []
 
 
-async def test_reconfigure_updates_and_reloads(hass: HomeAssistant, setup_integration: MockConfigEntry) -> None:
-    """A changed extent updates the entry, reloads, and syncs the store."""
+async def test_reconfigure_reloads_and_aborts(hass: HomeAssistant, setup_integration: MockConfigEntry) -> None:
+    """Confirming reloads the entry, aborts, and leaves entry.data empty."""
     result = await setup_integration.start_reconfigure_flow(hass)
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"occupancy_extent": "unit_within_building"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.ABORT
     assert result["reason"] == "reconfigure_successful"
     await hass.async_block_till_done()
-    assert setup_integration.data["occupancy_extent"] == "unit_within_building"
-    assert setup_integration.runtime_data.store.data["home_config"]["occupancy_extent"] == "unit_within_building"
+    assert setup_integration.data == {}
+    assert setup_integration.state is ConfigEntryState.LOADED
+
+
+async def test_reconfigure_leaves_home_config(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    persisted_store: None,
+) -> None:
+    """Reconfigure writes no settings: home_config is identical afterwards."""
+    store = setup_integration.runtime_data.store
+    await store.async_update_home_config(
+        occupancy_extent="unit_within_building",
+        unannotated_repair_threshold=9,
+    )
+    await store.async_save_now()
+    before = deepcopy(store.data["home_config"])
+
+    result = await setup_integration.start_reconfigure_flow(hass)
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["reason"] == "reconfigure_successful"
+    await hass.async_block_till_done()
+
+    assert setup_integration.runtime_data.store.data["home_config"] == before
+
+
+async def test_reconfigure_store_future_version_abort(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+) -> None:
+    """A future store version aborts the reconfigure too (unrecoverable by a retry)."""
+    result = await setup_integration.start_reconfigure_flow(hass)
+    path = _storage_path(hass)
+    envelope = {"version": 2, "minor_version": 1, "key": STORAGE_KEY, "data": {"schema_version": 2}}
+    path.write_text(json.dumps(envelope), encoding="utf-8")
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "store_future_version"
 
 
 async def test_reconfigure_runs_checks(hass: HomeAssistant, setup_integration: MockConfigEntry) -> None:
@@ -153,9 +182,7 @@ async def test_reconfigure_runs_checks(hass: HomeAssistant, setup_integration: M
     result = await setup_integration.start_reconfigure_flow(hass)
     path = _storage_path(hass)
     path.write_text("{ not json", encoding="utf-8")
-    result = await hass.config_entries.flow.async_configure(
-        result["flow_id"], {"occupancy_extent": "unit_within_building"}
-    )
+    result = await hass.config_entries.flow.async_configure(result["flow_id"], {})
     assert result["type"] is FlowResultType.FORM
     assert result["errors"] == {"base": "store_corrupt"}
 

@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from typing import TYPE_CHECKING, Any
+from unittest.mock import patch
 
 from custom_components.topology.const import EVENT_TOPOLOGY_UPDATED
 from custom_components.topology.websocket_api import async_register_websocket_api
@@ -363,12 +365,17 @@ async def test_ws_set_floor_level(
     assert response["error"]["code"] == "floor_not_found"
 
 
-async def test_ws_update_home_config_persists_across_reload(
+async def test_home_config_survives_reload(
     hass: HomeAssistant,
     setup_integration: MockConfigEntry,
     hass_ws_client: WebSocketGenerator,
+    persisted_store: None,
 ) -> None:
-    """A panel home-config edit is mirrored into entry.data and survives a reload."""
+    """The regression this change exists for: a panel edit survives a reload.
+
+    Setup no longer applies ``entry.data`` over the store, so a reload re-reads
+    the store and leaves the panel's values alone (§2.5).
+    """
     client = await hass_ws_client(hass)
     await client.send_json_auto_id(
         {
@@ -379,8 +386,7 @@ async def test_ws_update_home_config_persists_across_reload(
     )
     response = await client.receive_json()
     assert response["success"]
-    assert setup_integration.data["occupancy_extent"] == "unit_within_building"
-    assert setup_integration.data["unannotated_repair_threshold"] == 9
+    await setup_integration.runtime_data.store.async_save_now()
 
     await hass.config_entries.async_reload(setup_integration.entry_id)
     await hass.async_block_till_done()
@@ -388,6 +394,51 @@ async def test_ws_update_home_config_persists_across_reload(
     home = setup_integration.runtime_data.store.data["home_config"]
     assert home["occupancy_extent"] == "unit_within_building"
     assert home["unannotated_repair_threshold"] == 9
+
+
+async def test_update_home_config_leaves_entry_data_empty(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    hass_ws_client: WebSocketGenerator,
+) -> None:
+    """The panel edit writes the store only — no mirror back into entry.data."""
+    client = await hass_ws_client(hass)
+    await client.send_json_auto_id(
+        {
+            "type": "topology/update_home_config",
+            "occupancy_extent": "unit_within_building",
+            "projection_toggles": {"environment": True},
+            "unannotated_repair_threshold": 9,
+        }
+    )
+    response = await client.receive_json()
+    assert response["success"]
+    assert setup_integration.data == {}
+    # The response payload is unchanged: the frozen §4.9 contract still applies.
+    assert response["result"]["occupancy_extent"] == "unit_within_building"
+    assert response["result"]["unannotated_repair_threshold"] == 9
+
+
+async def test_setup_does_not_write_home_config(
+    hass: HomeAssistant,
+    setup_integration: MockConfigEntry,
+    store_payload_full: dict[str, Any],
+    load_payload: Callable[[MockConfigEntry, dict[str, Any]], None],
+    persisted_store: None,
+) -> None:
+    """A setup over a populated store mutates no home_config field (§2.5)."""
+    load_payload(setup_integration, store_payload_full)
+    store = setup_integration.runtime_data.store
+    await store.async_update_home_config(occupancy_extent="unit_within_building")
+    await store.async_save_now()
+    before = deepcopy(store.data["home_config"])
+
+    with patch("custom_components.topology.store.TopologyStore.async_apply_home_config") as apply:
+        await hass.config_entries.async_reload(setup_integration.entry_id)
+        await hass.async_block_till_done()
+        assert apply.call_count == 0
+
+    assert setup_integration.runtime_data.store.data["home_config"] == before
 
 
 async def test_ws_read_hook_envelope(
