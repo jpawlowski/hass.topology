@@ -41,6 +41,15 @@ export const EN: Record<string, string> = {
   "editor.home.project_environment": "Project environment labels",
   "editor.home.project_type": "Project type labels",
   "editor.home.project_trust": "Project trust labels",
+  "first_run.title": "Seed annotations from Home Assistant",
+  "first_run.hint":
+    "One-shot import from the area registry. It only fills in annotations that are still empty and never overwrites what you have set.",
+  "first_run.source.aliases": "Import area aliases",
+  "first_run.source.labels": "Import area labels",
+  "first_run.import": "Import",
+  "first_run.running": "Importing…",
+  "first_run.dismiss": "Not now",
+
   "editor.orphans.title": "Orphaned entries",
   "editor.orphans.restore": "Restore",
   "editor.orphans.empty": "No orphaned entries",
