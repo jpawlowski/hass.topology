@@ -18,13 +18,27 @@ STORAGE_KEY = f"{DOMAIN}.storage"  # -> .storage/topology.storage
 STORAGE_VERSION = 1  # major, mirrored as schema_version in the payload
 STORAGE_VERSION_MINOR = 1
 
+# --- config entry versioning (PLAN-topology-phase2-followup-configflow.md §3.1)
+# Deliberately *decoupled* from ``STORAGE_VERSION``: the config flow used to
+# declare ``VERSION = STORAGE_VERSION``, so bumping the entry would have bumped
+# the store schema too — every store would be treated as outdated, rewritten,
+# and a rollback would hit ``StoreFutureVersionError``. These two numbers are
+# semantically unrelated and must stay independent (D5).
+#
+# 1.1 -> 1.2: the config flow no longer collects home settings; ``entry.data``
+# is transferred into the store by ``async_migrate_entry`` and then emptied. The
+# major stays 1 — the change is backwards-compatible, so a *minor* bump is the
+# correct HA semantics.
+CONFIG_ENTRY_VERSION = 1
+CONFIG_ENTRY_MINOR_VERSION = 2
+
 # Orphaned registry-derived data is kept this long before purge (ADR
 # "Registry-Driven State"): a registry restore within the window keeps the
 # annotation instead of losing it.
 ORPHAN_UNDO_WINDOW = timedelta(hours=72)
 
 # Unannotated-area count at which the repair issue fires. Default per ADR;
-# user-configurable via the config flow (§5, decision D10).
+# user-configurable from the panel's home-config editor (§4.9).
 DEFAULT_UNANNOTATED_REPAIR_THRESHOLD = 3
 
 # --- repair issues (Phase 5, PLAN-topology-phase5.md §2) --------------------
@@ -117,7 +131,11 @@ IMPORT_SOURCE_ALIASES = "aliases"
 IMPORT_SOURCE_LABELS = "labels"
 IMPORT_SOURCES: tuple[str, ...] = (IMPORT_SOURCE_ALIASES, IMPORT_SOURCE_LABELS)
 
-# --- config-flow field keys (§5.1) ----------------------------------------
+# --- legacy config-flow field keys (Phase-2 §5.1) --------------------------
+# The seven keys the pre-slim flow wrote into ``entry.data``. The flow no longer
+# collects any of them (the panel edits the store instead), but the constants
+# stay: ``async_migrate_entry`` reads them once to transfer an existing entry's
+# values into the store, and ``LEGACY_CONF_KEYS`` is what it strips afterwards.
 CONF_OCCUPANCY_EXTENT = "occupancy_extent"
 CONF_IMPORT_ALIASES = "import_aliases"
 CONF_IMPORT_LABELS = "import_labels"
@@ -125,6 +143,18 @@ CONF_PROJECT_ENVIRONMENT = "project_environment"
 CONF_PROJECT_TYPE = "project_type"
 CONF_PROJECT_TRUST = "project_trust"
 CONF_UNANNOTATED_REPAIR_THRESHOLD = "unannotated_repair_threshold"
+
+# Removed from ``entry.data`` by the 1.1 -> 1.2 migration, which leaves the entry
+# with ``data == {}`` (§3.2 step 6).
+LEGACY_CONF_KEYS: tuple[str, ...] = (
+    CONF_OCCUPANCY_EXTENT,
+    CONF_IMPORT_ALIASES,
+    CONF_IMPORT_LABELS,
+    CONF_PROJECT_ENVIRONMENT,
+    CONF_PROJECT_TYPE,
+    CONF_PROJECT_TRUST,
+    CONF_UNANNOTATED_REPAIR_THRESHOLD,
+)
 
 # --- entities (Phase 3, PLAN-topology-phase3.md §3–§5) ---------------------
 # The integration domain is not auto-prefixed into an entity_id and topology

@@ -38,37 +38,11 @@
     "step": {
       "user": {
         "title": "Topology",
-        "description": "Set up the topology helper. These home-level settings can be changed later from the reconfigure flow or the topology panel.",
-        "data": {
-          "occupancy_extent": "Occupancy extent",
-          "import_aliases": "Import area aliases",
-          "import_labels": "Import area labels",
-          "project_environment": "Project environment onto areas",
-          "project_type": "Project type onto areas",
-          "project_trust": "Project trust onto areas",
-          "unannotated_repair_threshold": "Unannotated-area repair threshold"
-        },
-        "data_description": {
-          "occupancy_extent": "Whether all areas form a standalone property or a unit inside a larger building. This sets the default for unmodeled outer walls.",
-          "import_aliases": "Seed area annotations from existing area aliases once. The import runs when import support lands (a later release); until then the opt-in is only recorded.",
-          "import_labels": "Seed area annotations from existing area labels once. The import runs when import support lands (a later release); until then the opt-in is only recorded.",
-          "unannotated_repair_threshold": "Number of unannotated areas at which a repair suggestion is raised."
-        }
+        "description": "Set up the Topology helper. There is nothing to configure here — selecting Submit validates the area registry and the topology store, then creates the entry. All home settings are edited in the Topology panel."
       },
       "reconfigure": {
         "title": "Reconfigure Topology",
-        "description": "Update the home-level topology settings.",
-        "data": {
-          "occupancy_extent": "Occupancy extent",
-          "project_environment": "Project environment onto areas",
-          "project_type": "Project type onto areas",
-          "project_trust": "Project trust onto areas",
-          "unannotated_repair_threshold": "Unannotated-area repair threshold"
-        },
-        "data_description": {
-          "occupancy_extent": "Whether all areas form a standalone property or a unit inside a larger building. This sets the default for unmodeled outer walls.",
-          "unannotated_repair_threshold": "Number of unannotated areas at which a repair suggestion is raised."
-        }
+        "description": "Re-run the Topology setup checks and reload the integration. This step changes no settings — home settings are edited in the Topology panel."
       }
     },
     "error": {
@@ -81,12 +55,6 @@
     }
   },
   "selector": {
-    "occupancy_extent": {
-      "options": {
-        "whole_property": "Whole property (standalone home)",
-        "unit_within_building": "Unit within a building"
-      }
-    },
     "area_type": {
       "options": {
         "bedroom": "Bedroom",
