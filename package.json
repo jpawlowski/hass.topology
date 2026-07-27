@@ -3,21 +3,10 @@
   "version": "1.0.0",
   "description": "Development tools for the Home Assistant integration",
   "private": true,
-  "scripts": {
-    "frontend": "node frontend/esbuild.config.mjs",
-    "frontend-check": "tsc -p frontend/tsconfig.json --noEmit && vitest run --root frontend"
-  },
   "devDependencies": {
     "@github/copilot": "1.0.24",
-    "@types/node": "22.10.2",
-    "@vitest/coverage-v8": "2.1.8",
-    "esbuild": "0.24.2",
-    "jsdom": "25.0.1",
-    "lit": "3.2.1",
     "markdownlint-cli2": "0.22.0",
     "prettier": "3.8.2",
-    "pyright": "1.1.408",
-    "typescript": "5.7.2",
-    "vitest": "2.1.8"
+    "pyright": "1.1.408"
   }
 }
