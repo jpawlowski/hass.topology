@@ -55,26 +55,6 @@ if [[ ! -d ${PWD}/config ]]; then
     hass --config "${PWD}/config" --script ensure_config
 fi
 
-# Seed the split-config files configuration.yaml includes. They are gitignored
-# (config/* is), so a fresh clone has none of them, and !include of a missing
-# file is a hard startup error. Home Assistant writes these itself as soon as
-# the UI editors are used; this only covers the first start.
-for _split in automations scripts scenes; do
-    if [[ ! -f "${PWD}/config/${_split}.yaml" ]]; then
-        printf '[]\n' >"${PWD}/config/${_split}.yaml"
-        log_info "Created empty config/${_split}.yaml"
-    fi
-done
-
-# Blueprints ship in the repository but Home Assistant only reads them from its
-# own config directory, so mirror them in. Copying rather than symlinking keeps
-# the user free to edit a copy without touching the shipped source.
-if [[ -d ${PWD}/blueprints ]]; then
-    mkdir -p "${PWD}/config/blueprints/automation/topology"
-    cp "${PWD}"/blueprints/automation/topology/*.yaml \
-        "${PWD}/config/blueprints/automation/topology/" 2>/dev/null || true
-fi
-
 "$SCRIPT_DIR/setup/sync-hacs"
 
 run_hook "develop" "pre"
